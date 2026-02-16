@@ -156,7 +156,7 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # [수정] 차트 레이아웃 (범례 간격 확보 및 위치 조정)
+    # [수정] 차트 레이아웃 (범례 우측 이동)
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
@@ -166,15 +166,15 @@ if not chart_data.empty:
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        # [중요] margin-top(t)을 60으로 늘려서 제목/범례와 차트 사이 공간 확보
-        margin=dict(l=10, r=10, t=60, b=10),
-        # [중요] 범례(Legend) 위치 조정 (차트 영역 밖으로)
+        # 상단 여백 줄임 (범례가 옆으로 갔으므로)
+        margin=dict(l=10, r=10, t=30, b=10),
+        # [중요] 범례를 우측으로 이동
         legend=dict(
-            orientation="h",   # 가로 배치
-            yanchor="bottom",
-            y=1.02,            # 차트 위쪽으로 띄움
-            xanchor="right",
-            x=1
+            orientation="v",   # 세로 배치
+            yanchor="top",
+            y=1,
+            xanchor="left",
+            x=1.01             # 차트 오른쪽 바깥
         )
     )
     
@@ -220,7 +220,7 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
-# [수정] "표시할 항목 선택" 기능 삭제됨 (바로 상세 필터링 메뉴 배치)
+# [수정] "표시할 항목 선택" 삭제됨 -> 바로 상세 필터링 메뉴 배치
 with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=False):
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1:
@@ -316,7 +316,7 @@ if st.button("💾 변경사항 저장하기", type="primary"):
         visible_ids = edited_df["_original_id"].dropna().tolist()
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 합치기 (저장 시 ID 컬럼 제거)
+        # 합치기
         save_part_df = save_part_df[required_cols]
         hidden_part_df = hidden_data[required_cols]
         
