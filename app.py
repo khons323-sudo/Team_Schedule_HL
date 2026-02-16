@@ -7,15 +7,15 @@ import time
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS (대폭 수정됨)
+# 1. 페이지 설정 및 인쇄용 CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# [수정] 인쇄 시 빈 페이지/잘림 방지를 위한 강력한 CSS
+# [수정] 인쇄 폭 100% 강제 설정 삭제
 print_css = """
 <style>
 @media print {
-    /* 1. Streamlit 기본 UI 완벽하게 숨기기 */
+    /* 1. 불필요한 UI 숨기기 (버튼, 사이드바 등) */
     header, footer, aside, 
     [data-testid="stSidebar"], [data-testid="stToolbar"], 
     .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -24,36 +24,32 @@ print_css = """
         display: none !important;
     }
 
-    /* 2. 배경과 글자색 강제 조정 (잉크 절약 및 가독성 확보) */
+    /* 2. 잉크 절약을 위해 배경 흰색, 글자 검은색으로 강제 변환 */
     body, .stApp, .block-container, div[data-testid="stDataEditor"] {
         background-color: white !important;
         color: black !important;
     }
     
-    /* 표 안의 글자도 검은색으로 강제 */
     div[data-testid="stDataEditor"] * {
         color: black !important;
         font-weight: 500 !important;
     }
 
-    /* 3. 메인 콘텐츠 강제 확장 (스크롤 해제하여 전체 출력) */
+    /* 3. 내용이 잘리지 않도록 스크롤 영역 해제 */
     html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
         overflow: visible !important;
         height: auto !important;
         visibility: visible !important;
     }
 
-    /* 4. 콘텐츠 영역 넓이 100% 및 여백 제거 */
-    .block-container {
-        max-width: 100% !important;
-        width: 100% !important;
-        padding: 0 !important;
-        margin: 0 !important;
+    /* 4. 데이터 표 폰트 사이즈만 살짝 조정 (폭 강제 설정은 삭제함) */
+    div[data-testid="stDataEditor"] table {
+        font-size: 10px !important;
     }
 
     /* 5. 페이지 설정 */
     @page {
-        size: landscape; /* 가로 방향 */
+        size: landscape; /* 가로 방향 권장 */
         margin: 1cm;
     }
 }
@@ -189,7 +185,7 @@ if not chart_data.empty:
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=10, r=10, t=60, b=10),
         legend=dict(
             orientation="v",
             yanchor="top",
