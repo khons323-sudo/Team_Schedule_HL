@@ -7,37 +7,28 @@ import time
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS 주입
+# 1. 페이지 설정 및 인쇄용 CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# [핵심] 인쇄 시 적용될 CSS 스타일 정의
-# - 버튼, 입력창 등을 숨기고 표와 차트만 출력
-# - 표 너비를 100%로 강제하여 용지에 맞춤
+# 인쇄 시 적용될 CSS (표 폭 100%, 불필요한 요소 숨김)
 print_css = """
 <style>
 @media print {
-    /* 1. 인쇄할 때 숨길 항목들 (버튼, 헤더, 사이드바, 필터박스 등) */
     header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"], 
     .stButton, .stDownloadButton, .stExpander, .stForm, div[data-testid="stVerticalBlockBorderWrapper"] {
         display: none !important;
     }
-    
-    /* 2. 전체 레이아웃 여백 제거 및 폭 100% 설정 */
     .main .block-container {
         max-width: 100% !important;
         width: 100% !important;
         padding: 10px !important;
         margin: 0 !important;
     }
-
-    /* 3. 데이터 에디터(표)와 차트 강제 확장 */
     div[data-testid="stDataEditor"] table {
         width: 100% !important;
-        font-size: 10px !important; /* 인쇄 시 글자 크기 조정 */
+        font-size: 10px !important;
     }
-    
-    /* 4. 페이지 설정 (가로 방향 권장) */
     @page {
         size: landscape;
         margin: 0.5cm;
@@ -59,7 +50,6 @@ if 'show_completed' not in st.session_state:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # 모든 컬럼 읽어오기 (캐시 끄기)
     data = conn.read(worksheet="Sheet1", ttl=0)
 except Exception as e:
     st.error(f"⚠️ 데이터 불러오기 실패. 구글 시트 탭 이름이 'Sheet1'인지 확인하세요.\n에러: {e}")
@@ -70,33 +60,31 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
 
-# 데이터가 비어있거나 컬럼이 모자랄 경우 처리
 if data.empty:
     for col in required_cols:
         data[col] = ""
     data["진행률"] = 0
 
-# 1) 날짜 변환
+# 날짜 변환
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 
-# 2) 남은기간 계산
+# 남은기간 계산
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 
-# 3) 진행률 숫자 변환
+# 진행률 숫자 변환
 if "진행률" in data.columns and data["진행률"].dtype == 'object':
     data["진행률"] = data["진행률"].astype(str).str.replace('%', '')
-
 data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
 
-# 4) 시각화용 진행상황 컬럼
+# 시각화용 진행상황 컬럼
 data["진행상황"] = data["진행률"]
 
-# 5) 고유 ID 부여
+# 고유 ID 부여 (데이터 유실 방지용)
 data["_original_id"] = data.index
 
-# 6) 리스트 추출 (옵션용)
+# 리스트 추출 (옵션용)
 projects_list = sorted(data["프로젝트명"].astype(str).dropna().unique().tolist())
 if "구분" in data.columns:
     items_list = sorted(data["구분"].astype(str).dropna().unique().tolist())
@@ -168,6 +156,7 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
+    # [수정] 차트 레이아웃 (범례 간격 확보 및 위치 조정)
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
@@ -177,8 +166,16 @@ if not chart_data.empty:
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=30, b=10),
-        legend=dict(orientation="h", y=1.1)
+        # [중요] margin-top(t)을 60으로 늘려서 제목/범례와 차트 사이 공간 확보
+        margin=dict(l=10, r=10, t=60, b=10),
+        # [중요] 범례(Legend) 위치 조정 (차트 영역 밖으로)
+        legend=dict(
+            orientation="h",   # 가로 배치
+            yanchor="bottom",
+            y=1.02,            # 차트 위쪽으로 띄움
+            xanchor="right",
+            x=1
+        )
     )
     
     fig.update_xaxes(
@@ -223,8 +220,8 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
-# 상세 필터링
-with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=True):
+# [수정] "표시할 항목 선택" 기능 삭제됨 (바로 상세 필터링 메뉴 배치)
+with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=False):
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1:
         filter_project = st.multiselect("프로젝트명", options=projects_list)
@@ -235,7 +232,7 @@ with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", 
     with f_col4:
         filter_activity = st.multiselect("Activity", options=activity_list)
 
-# 필터 로직 적용
+# 필터 로직
 filtered_df = base_data.copy()
 
 if filter_project:
@@ -248,9 +245,8 @@ if filter_activity:
     filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
 
 # -----------------------------------------------------------------------------
-# 7. 버튼 그룹 (다운로드, 완료토글, 인쇄)
+# 7. 버튼 그룹
 # -----------------------------------------------------------------------------
-# [수정] 인쇄 버튼을 위해 컬럼 비율 조정
 col_down, col_toggle, col_print, col_blank = st.columns([0.2, 0.2, 0.15, 0.45])
 
 with col_down:
@@ -274,8 +270,7 @@ with col_toggle:
         st.rerun()
 
 with col_print:
-    # [추가] 인쇄 버튼
-    # 버튼을 누르면 자바스크립트 window.print()를 실행
+    # 인쇄 버튼
     if st.button("🖨️ 페이지 인쇄", use_container_width=True):
         st.components.v1.html("<script>window.print()</script>", height=0, width=0)
 
@@ -287,6 +282,7 @@ st.caption("※ 제목(헤더)을 클릭하면 **정렬**됩니다. 수정 후 *
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
+# 에디터 표시
 edited_df = st.data_editor(
     filtered_df,
     num_rows="dynamic",
@@ -309,29 +305,29 @@ edited_df = st.data_editor(
 )
 
 # -----------------------------------------------------------------------------
-# 9. 저장 버튼 (안전한 저장 로직)
+# 9. 저장 버튼
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 1. 화면 수정 데이터
+        # 화면 수정 데이터
         save_part_df = edited_df[required_cols + ["_original_id"]]
         
-        # 2. 숨겨진 데이터 병합
+        # 숨겨진 데이터 병합
         visible_ids = edited_df["_original_id"].dropna().tolist()
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 3. 데이터 병합
-        save_part_df = save_part_df[required_cols] # 저장할 땐 ID 제외
+        # 합치기 (저장 시 ID 컬럼 제거)
+        save_part_df = save_part_df[required_cols]
         hidden_part_df = hidden_data[required_cols]
         
         final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
         
-        # 4. 형식 통일
+        # 형식 통일
         final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        # 5. 업로드
+        # 업로드
         conn.update(worksheet="Sheet1", data=final_save_df)
         st.cache_data.clear()
         
