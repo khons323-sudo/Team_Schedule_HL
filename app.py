@@ -30,7 +30,7 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 # 3. 데이터 전처리
 # -----------------------------------------------------------------------------
-# [변경] 공종 -> 구분
+# 필수 컬럼 정의 (공종 -> 구분)
 required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
 
 # 데이터가 비어있거나 컬럼이 모자랄 경우 처리
@@ -63,7 +63,6 @@ if "구분" in data.columns:
 else:
     items_list = []
 members_list = sorted(data["담당자"].astype(str).dropna().unique().tolist())
-# [추가] Activity 리스트 추출
 activity_list = sorted(data["Activity"].astype(str).dropna().unique().tolist())
 
 # -----------------------------------------------------------------------------
@@ -74,7 +73,7 @@ with st.expander("➕ 새 일정 등록하기"):
         c1, c2, c3 = st.columns(3)
         with c1:
             p_name = st.text_input("프로젝트명")
-            p_item = st.text_input("구분") # 공종 -> 구분
+            p_item = st.text_input("구분")
         with c2:
             p_member = st.text_input("담당자")
             p_act = st.text_input("Activity")
@@ -118,32 +117,31 @@ else:
 chart_data = filtered_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
-    # [디자인] 밝은 색상 팔레트 정의 (어두운 배경 대비용)
+    # [디자인] 밝은 파스텔톤 색상
     custom_colors = px.colors.qualitative.Pastel 
 
     fig = px.timeline(
         chart_data, 
         x_start="시작일", x_end="종료일", y="프로젝트명", 
         color="담당자",
-        color_discrete_sequence=custom_colors, # [요청] 밝은 색상 적용
+        color_discrete_sequence=custom_colors,
         hover_name="프로젝트명",
         hover_data=["구분", "Activity", "진행률", "남은기간"],
         title="프로젝트별 일정"
     )
     
-    # [디자인 수정] 차트 스타일링
+    # [디자인] 차트 스타일링 (높이 400px, 어두운 배경)
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
         barmode='group', 
-        bargap=0.2, # 바 사이 간격 조정
-        height=400, # [요청] 높이를 2/3 수준(400px)으로 축소
-        # 배경색 설정
+        bargap=0.2, 
+        height=400, # 높이 축소
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=30, b=10), # 여백 최소화
-        legend=dict(orientation="h", y=1.1) # 범례 위로 올리기
+        margin=dict(l=10, r=10, t=30, b=10),
+        legend=dict(orientation="h", y=1.1)
     )
     
     fig.update_xaxes(
@@ -158,8 +156,9 @@ if not chart_data.empty:
         showticklabels=True,
         tickfont=dict(color="white", size=14),
         showgrid=True,
-        gridcolor='rgba(255, 255, 255, 0.3)', # 프로젝트 구분선
-        layer="below traces" # 그리드 라인이 바 뒤로 가게
+        gridcolor='rgba(255, 255, 255, 0.3)', # 프로젝트 구분선 (실선)
+        gridwidth=1,
+        layer="below traces"
     )
 
     # 분기별 구분선 (실선)
@@ -187,19 +186,6 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
-# [요청] 컬럼 제어 (토글/콤보박스) - 멀티셀렉트로 구현
-# 화면에 표시할 기본 컬럼들
-all_display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
-# 실제 데이터에 존재하는 컬럼만 필터링
-valid_cols = [c for c in all_display_cols if c in filtered_data.columns]
-
-# 컬럼 선택 박스 (기본적으로 모두 선택)
-selected_cols = st.multiselect(
-    "👁️ 표시할 항목 선택 (필요 없는 열은 X를 눌러 숨기세요)",
-    options=valid_cols,
-    default=valid_cols
-)
-
 # -----------------------------------------------------------------------------
 # 7. 버튼 그룹 (다운로드 & 완료업무 토글)
 # -----------------------------------------------------------------------------
@@ -220,8 +206,7 @@ with col_down:
     )
 
 with col_btn:
-    # [요청] 완료된 업무 보기/끄기 토글 버튼
-    # 현재 상태에 따라 버튼 텍스트 변경
+    # 완료된 업무 보기/끄기 토글 버튼
     btn_text = "🙈 완료된 업무 끄기" if st.session_state.show_completed else "👁️ 완료된 업무 보기"
     
     if st.button(btn_text, use_container_width=True):
@@ -229,21 +214,33 @@ with col_btn:
         st.rerun()
 
 # -----------------------------------------------------------------------------
-# 8. 데이터 에디터
+# 8. 정렬 및 데이터 에디터 (수정)
 # -----------------------------------------------------------------------------
-st.caption("※ 제목을 클릭하면 **정렬(Sorting)** 됩니다. 내용을 수정하고 반드시 아래 **저장** 버튼을 누르세요.")
+# 정렬 컨트롤 (표 위에 배치하여 확실한 정렬 기능 제공)
+st.caption("※ 아래 옵션을 사용하여 데이터를 정렬할 수 있습니다.")
+col_sort1, col_sort2, col_dummy = st.columns([0.2, 0.2, 0.6])
 
-# 사용자가 선택한 컬럼만 표시
-final_display_df = filtered_data[selected_cols]
+with col_sort1:
+    sort_col = st.selectbox("🗂️ 정렬 기준", options=["프로젝트명", "구분", "담당자", "종료일", "진행률"], index=0)
+with col_sort2:
+    sort_asc = st.radio("순서", options=["오름차순", "내림차순"], horizontal=True)
+
+# 데이터 정렬 로직 적용
+is_ascending = True if sort_asc == "오름차순" else False
+final_sorted_df = filtered_data.sort_values(by=sort_col, ascending=is_ascending)
+
+# 데이터 에디터 표시
+display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
+final_display_cols = [c for c in display_cols if c in final_sorted_df.columns]
 
 edited_df = st.data_editor(
-    final_display_df,
+    final_sorted_df[final_display_cols],
     num_rows="dynamic",
     column_config={
         "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
         "구분": st.column_config.SelectboxColumn("구분", options=items_list),
         "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
-        # [요청] Activity 열도 선택박스로 변경
+        # [추가] Activity도 선택박스로 변경 (기존 입력값 중 선택)
         "Activity": st.column_config.SelectboxColumn("Activity", options=activity_list),
         
         "진행률": st.column_config.NumberColumn("진행률(입력)", min_value=0, max_value=100, step=5, format="%d"),
@@ -263,7 +260,6 @@ edited_df = st.data_editor(
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
         # 1. 화면 수정 데이터 (필수 컬럼만 추출)
-        # 에디터에 없는 컬럼(숨긴 컬럼)도 원본에서 가져와야 함
         save_part_df = pd.DataFrame(edited_df, columns=required_cols)
         
         # 2. 숨겨진 데이터 병합 logic
