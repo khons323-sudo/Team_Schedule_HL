@@ -16,11 +16,11 @@ st.title("📅 디자인1본부 1팀 작업일정")
 # 구글 시트 연결 객체 생성
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# [중요] ttl=0 으로 설정하여 캐시를 남기지 않고 매번 최신 데이터를 가져옵니다.
+# [중요] ttl=0 설정: 캐시를 남기지 않고 매번 최신 데이터를 가져옵니다. (실시간 공유 핵심)
 try:
     data = conn.read(worksheet="Sheet1", usecols=list(range(7)), ttl=0)
 except Exception as e:
-    st.error(f"데이터를 불러오는데 실패했습니다. 구글 시트의 이름이 'Sheet1'이 맞는지 확인해주세요. 에러 메시지: {e}")
+    st.error(f"데이터를 불러오는데 실패했습니다. 구글 시트의 탭 이름이 'Sheet1'이 맞는지 확인해주세요. (에러: {e})")
     st.stop()
 
 # 빈 데이터프레임 처리 (데이터가 없을 경우 컬럼만 생성)
@@ -28,14 +28,17 @@ if len(data) == 0:
     data = pd.DataFrame(columns=["프로젝트명", "항목", "담당자", "Activity", "시작일", "종료일", "진행률"])
 
 # -----------------------------------------------------------------------------
-# 3. 데이터 전처리 (날짜 형식 통일 및 에러 방지)
+# 3. 데이터 전처리 (날짜 및 숫자 형식 강제 변환)
 # -----------------------------------------------------------------------------
-# 날짜 컬럼을 날짜 형식으로 변환 (에러가 나면 NaT로 처리하여 프로그램 멈춤 방지)
+# 1) 날짜 컬럼을 날짜 형식으로 변환 (에러가 나면 NaT로 처리하여 프로그램 멈춤 방지)
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 
-# 날짜가 비어있는 행(NaT)은 차트에서 오류를 일으키므로 제거하거나 필터링
-# (여기서는 보여주기용 데이터인 view_data를 따로 만듭니다)
+# 2) [핵심 수정] 진행률 입력이 안 되는 문제 해결
+# 진행률 컬럼을 강제로 '숫자(정수)'로 변환합니다. 빈값이나 문자가 있으면 0으로 채웁니다.
+data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
+
+# 3) 차트용 데이터 (날짜가 없는 행은 차트에서 제외)
 view_data = data.dropna(subset=["시작일", "종료일"]).copy()
 
 # -----------------------------------------------------------------------------
@@ -57,10 +60,11 @@ with st.expander("➕ 새 일정 등록하기 (클릭하여 열기)"):
         submitted = st.form_submit_button("일정 추가")
         
         if submitted:
-            # [중요] 날짜를 문자열(YYYY-MM-DD)로 강제 변환하여 저장 (포맷 통일)
+            # [중요] 저장할 때는 날짜를 문자열(YYYY-MM-DD)로 변환해야 구글 시트 날짜 형식이 안 깨집니다.
             start_str = new_start.strftime("%Y-%m-%d")
             end_str = new_end.strftime("%Y-%m-%d")
 
+            # 새로운 행 생성
             new_row = pd.DataFrame([{
                 "프로젝트명": new_project,
                 "항목": new_item,
@@ -71,15 +75,12 @@ with st.expander("➕ 새 일정 등록하기 (클릭하여 열기)"):
                 "진행률": 0
             }])
             
-            # 기존 데이터에 추가
-            # (주의: data 변수는 날짜형식이므로, 저장할 땐 원본 데이터프레임 구조에 맞춰야 함)
-            # 여기서는 편의상 data를 다시 읽거나 하지 않고 직접 추가하여 업데이트
-            
-            # 날짜 객체를 다시 문자열로 바꿔서 합칠 준비
+            # 기존 데이터(data)도 날짜가 datetime 객체이므로, 저장용으로 문자열 변환
             save_data = data.copy()
             save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
             save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
             
+            # 합치기
             updated_df = pd.concat([save_data, new_row], ignore_index=True)
             
             # 구글 시트에 업데이트
@@ -103,7 +104,7 @@ if not view_data.empty:
         x_start="시작일", 
         x_end="종료일", 
         y="프로젝트명", 
-        color="담당자", # 오타 수정 완료 (担当자 -> 담당자)
+        color="담당자", 
         hover_data=["항목", "Activity", "진행률"],
         text="Activity", # 바 위에 글씨 표시
         title="프로젝트별 일정 바 차트"
@@ -122,7 +123,7 @@ else:
 st.divider()
 st.subheader("📝 팀원 업무 현황 및 진행률 업데이트")
 st.markdown("""
-- 아래 표에서 본인의 **'진행률'** 을 직접 수정하세요.
+- 아래 표에서 본인의 **'진행률'** 을 직접 수정하세요. (슬라이더 조작)
 - 수정 후 표 아래에 생기는 **'💾 변경사항 저장'** 버튼을 꼭 눌러야 공유됩니다.
 """)
 
@@ -150,7 +151,6 @@ edited_df = st.data_editor(
 if st.button("💾 변경사항 저장 및 팀원 공유하기", type="primary"):
     try:
         # [중요] 저장 전 날짜 포맷을 문자열(YYYY-MM-DD)로 통일
-        # 이렇게 안 하면 구글 시트가 2026. 2. 4 처럼 제멋대로 저장함
         save_df = edited_df.copy()
         save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d")
         save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d")
