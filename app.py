@@ -7,55 +7,47 @@ import time
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS
+# 1. 페이지 설정 및 인쇄 기능 주입 (새로 작성됨)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# [수정] 인쇄 폭 100% 강제 설정 삭제
-print_css = """
-<style>
-@media print {
-    /* 1. 불필요한 UI 숨기기 (버튼, 사이드바 등) */
-    header, footer, aside, 
-    [data-testid="stSidebar"], [data-testid="stToolbar"], 
-    .stButton, .stDownloadButton, .stExpander, .stForm, 
-    div[data-testid="stVerticalBlockBorderWrapper"],
-    button {
-        display: none !important;
-    }
+# [New] 인쇄 전용 스타일 및 스크립트 정의
+# 이 CSS는 화면에서는 아무 변화가 없지만, '인쇄(Ctrl+P)'가 실행될 때만 작동합니다.
+st.markdown("""
+    <style>
+    @media print {
+        /* 1. 인쇄 시 숨길 요소들 (버튼, 사이드바, 입력창 등) */
+        [data-testid="stSidebar"], 
+        [data-testid="stToolbar"],
+        .stButton, 
+        .stDownloadButton, 
+        .stExpander, 
+        header, 
+        footer {
+            display: none !important;
+        }
 
-    /* 2. 잉크 절약을 위해 배경 흰색, 글자 검은색으로 강제 변환 */
-    body, .stApp, .block-container, div[data-testid="stDataEditor"] {
-        background-color: white !important;
-        color: black !important;
-    }
-    
-    div[data-testid="stDataEditor"] * {
-        color: black !important;
-        font-weight: 500 !important;
-    }
+        /* 2. 콘텐츠 영역을 종이 너비에 꽉 차게 확장 */
+        .main .block-container {
+            max-width: 100% !important;
+            width: 100% !important;
+            padding: 1rem !important;
+            margin: 0 !important;
+        }
 
-    /* 3. 내용이 잘리지 않도록 스크롤 영역 해제 */
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
-        overflow: visible !important;
-        height: auto !important;
-        visibility: visible !important;
+        /* 3. 차트와 표의 배경색/글자색 강제 조정 (잉크 절약 및 가독성) */
+        body {
+            -webkit-print-color-adjust: exact; /* 배경색 출력 강제 */
+        }
+        
+        /* 4. 스크롤바 숨기기 및 전체 내용 표시 */
+        html, body {
+            height: auto !important;
+            overflow: visible !important;
+        }
     }
-
-    /* 4. 데이터 표 폰트 사이즈만 살짝 조정 (폭 강제 설정은 삭제함) */
-    div[data-testid="stDataEditor"] table {
-        font-size: 10px !important;
-    }
-
-    /* 5. 페이지 설정 */
-    @page {
-        size: landscape; /* 가로 방향 권장 */
-        margin: 1cm;
-    }
-}
-</style>
-"""
-st.markdown(print_css, unsafe_allow_html=True)
+    </style>
+""", unsafe_allow_html=True)
 
 st.title("📅 디자인1본부 1팀 작업일정")
 
@@ -185,7 +177,7 @@ if not chart_data.empty:
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=60, b=10),
+        margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(
             orientation="v",
             yanchor="top",
@@ -262,8 +254,9 @@ if filter_activity:
     filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
 
 # -----------------------------------------------------------------------------
-# 7. 버튼 그룹
+# 7. 버튼 그룹 (다운로드, 토글, 인쇄)
 # -----------------------------------------------------------------------------
+# 버튼 3개를 나란히 배치하기 위한 컬럼 비율 설정
 col_down, col_toggle, col_print, col_blank = st.columns([0.2, 0.2, 0.15, 0.45])
 
 with col_down:
@@ -287,9 +280,13 @@ with col_toggle:
         st.rerun()
 
 with col_print:
-    # 인쇄 버튼
-    if st.button("🖨️ 페이지 인쇄", use_container_width=True):
-        st.components.v1.html("<script>window.print()</script>", height=0, width=0)
+    # [New] 인쇄 버튼 (자바스크립트로 브라우저 인쇄 호출)
+    if st.button("🖨️ 인쇄", use_container_width=True):
+        components.html(
+            "<script>window.print();</script>",
+            height=0,
+            width=0
+        )
 
 # -----------------------------------------------------------------------------
 # 8. 데이터 에디터
