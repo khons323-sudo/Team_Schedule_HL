@@ -285,7 +285,6 @@ column_config={
 "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
 "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
 },
-column_order=final_display_cols,
 use_container_width=True,
 hide_index=True,
 key="data_editor"
