@@ -23,9 +23,12 @@ data = conn.read(worksheet="Sheet1", usecols=list(range(7)), ttl=0)
 if len(data) == 0:
     data = pd.DataFrame(columns=["프로젝트명", "항목", "담당자", "Activity", "시작일", "종료일", "진행률"])
 
-# 날짜 형식 변환 (문자열 -> 날짜 객체)
-data["시작일"] = pd.to_datetime(data["시작일"])
-data["종료일"] = pd.to_datetime(data["종료일"])
+# 날짜 변환 (에러가 나면 NaT로 변환하여 프로그램이 죽지 않게 함)
+data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
+data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
+
+# 날짜가 비어있는 행(NaT)은 제거 (차트 그릴 때 에러 방지)
+data = data.dropna(subset=["시작일", "종료일"])
 
 # -----------------------------------------------------------------------------
 # 3. [입력 섹션] 새로운 업무/일정 등록 (관리자/팀장용)
