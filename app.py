@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import time
@@ -17,6 +18,7 @@ st.title("📅 디자인1본부 1팀 작업일정")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
+    # 모든 컬럼 읽어오기 (캐시 끄기)
     data = conn.read(worksheet="Sheet1", ttl=0)
 except Exception as e:
     st.error(f"⚠️ 데이터 불러오기 실패. 구글 시트 탭 이름이 'Sheet1'인지 확인하세요.\n에러: {e}")
@@ -27,6 +29,7 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 required_cols = ["프로젝트명", "공종", "담당자", "Activity", "시작일", "종료일", "진행률"]
 
+# 데이터가 비어있거나 컬럼이 모자랄 경우 처리
 if data.empty:
     for col in required_cols:
         data[col] = ""
@@ -46,10 +49,10 @@ if "진행률" in data.columns and data["진행률"].dtype == 'object':
 
 data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
 
-# 4) 시각화용 진행상황 컬럼
+# 4) 시각화용 진행상황 컬럼 복사
 data["진행상황"] = data["진행률"]
 
-# 5) 드롭다운용 리스트
+# 5) 리스트 추출
 projects_list = sorted(data["프로젝트명"].astype(str).dropna().unique().tolist())
 if "공종" in data.columns:
     items_list = sorted(data["공종"].astype(str).dropna().unique().tolist())
@@ -84,6 +87,7 @@ with st.expander("➕ 새 일정 등록하기"):
                 "진행률": 0
             }])
             
+            # 저장 로직
             save_data = data[required_cols].copy()
             save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
             save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
@@ -94,14 +98,25 @@ with st.expander("➕ 새 일정 등록하기"):
             st.rerun()
 
 # -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트 (디자인 수정 적용)
+# 5. [필터 및 시각화 섹션]
 # -----------------------------------------------------------------------------
 st.subheader("📊 전체 일정 (Gantt Chart)")
 
-chart_data = data.dropna(subset=["시작일", "종료일"]).copy()
+# [기능추가] 완료된 항목 숨기기 토글
+col_toggle, col_dummy = st.columns([0.3, 0.7])
+with col_toggle:
+    show_completed = st.toggle("✅ 완료된 업무(100%) 보기", value=False)
+
+# 필터링 로직
+if show_completed:
+    filtered_data = data.copy() # 전체 다 보기
+else:
+    filtered_data = data[data["진행률"] < 100].copy() # 100 미만만 보기
+
+# 차트용 데이터 (날짜 없는 행 제외)
+chart_data = filtered_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
-    # 1. 차트 기본 생성
     fig = px.timeline(
         chart_data, 
         x_start="시작일", x_end="종료일", y="프로젝트명", 
@@ -111,34 +126,39 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # 2. 레이아웃 디자인 수정
+    # [디자인 수정] 차트 스타일링
     fig.update_layout(
-        xaxis_title="", # 하단 날짜 제목 제거 (깔끔하게)
-        yaxis_title="", # 좌측 '프로젝트명' 제목 제거 (라벨은 유지)
+        xaxis_title="", 
+        yaxis_title="", 
         barmode='group', 
-        bargap=0.2,
+        bargap=0.1,
         height=600,
-        # [요청] 하단 날짜 나오는 칸 Grey Tone -> Range Slider 활성화로 구현
-        xaxis=dict(
-            rangeslider=dict(visible=True), # 하단에 회색 톤의 범위 조절바 생성
-            type="date"
-        )
+        # 배경색 설정 (흰색 글씨가 보이도록 어둡게)
+        paper_bgcolor='rgb(40, 40, 40)',
+        plot_bgcolor='rgb(40, 40, 40)',
+        font=dict(color="white"), # 기본 글자색 흰색
     )
     
-    # 3. Y축 (왼쪽 프로젝트명) 설정
-    fig.update_yaxes(
-        autorange="reversed", # 위에서부터 순서대로
-        showticklabels=True,  # [요청] 프로젝트명 글자 다시 보이게 설정
-        tickfont=dict(size=12, color="black"), # 글자 크기 및 색상
-        tickangle=0,          # [요청] 글자 회전 없이 가로로 똑바로
-        # [요청] 팀원 구분선(파선) -> 기본 그리드를 파선으로 설정
+    # [디자인 수정] 축 스타일링
+    fig.update_xaxes(
         showgrid=True,
+        gridcolor='rgba(255, 255, 255, 0.1)', # 세로 그리드 연하게
+        tickfont=dict(color="white"),
+        # 날짜 나오는 칸 Grey 톤 처리
+        showbackground=True,
+        backgroundcolor="rgb(80, 80, 80)"
+    )
+    
+    fig.update_yaxes(
+        autorange="reversed",
+        showticklabels=True, # [수정] 프로젝트명 다시 표시
+        tickfont=dict(color="white", size=14, family="Arial Black"), # 흰색, 굵게
+        showgrid=True, # 가로 그리드 켜기
+        gridcolor='white', # [요청] 프로젝트 구분선 실선(White)
         gridwidth=1,
-        gridcolor='lightgray',
-        griddash='dash'       # 파선 (Dashed line)
     )
 
-    # 4. [요청] 분기별(3개월) 구분선 - 점선 대신 '실선'
+    # [수정] 분기별 구분선 (실선)
     min_date = chart_data["시작일"].min()
     max_date = chart_data["종료일"].max()
     
@@ -148,29 +168,14 @@ if not chart_data.empty:
                 q_date = datetime(year, month, 1)
                 fig.add_vline(
                     x=q_date.timestamp() * 1000, 
-                    line_width=1.5,     # 선 두께
-                    line_dash="solid",  # [요청] 실선(Solid)
-                    line_color="#888888", # 진한 회색
-                    opacity=0.5
+                    line_width=2, 
+                    line_dash="solid", # [요청] 점선 -> 실선
+                    line_color="rgba(255, 255, 255, 0.5)" # 약간 투명한 흰색 실선
                 )
-
-    # 5. [요청] 프로젝트 구분선 (수평 실선)
-    # 프로젝트 개수만큼 반복하며 수평선 그리기
-    unique_projects = chart_data["프로젝트명"].unique()
-    for i in range(len(unique_projects) + 1):
-        # Y축은 카테고리 데이터라 0, 1, 2... 인덱스를 가짐.
-        # 프로젝트 사이사이에 선을 긋기 위해 i - 0.5 위치에 선을 그림
-        fig.add_hline(
-            y=i - 0.5,
-            line_width=1,
-            line_dash="solid", # [요청] 프로젝트 구분은 실선
-            line_color="black",
-            opacity=0.3
-        )
 
     st.plotly_chart(fig, use_container_width=True)
 else:
-    st.info("일정이 등록되면 여기에 차트가 표시됩니다.")
+    st.info("표시할 일정이 없습니다. (완료된 업무만 있거나 데이터가 없습니다)")
 
 # -----------------------------------------------------------------------------
 # 6. [수정 및 다운로드 섹션]
@@ -179,10 +184,12 @@ st.divider()
 c_title, c_down = st.columns([0.8, 0.2])
 
 with c_title:
-    st.subheader("📝 업무 현황 수정")
-    st.caption("※ **'진행률(입력)'**에 숫자를 입력하면 오른쪽 바가 변합니다.")
+    # [문구수정] 업무 현황 수정 -> 업무 현황
+    st.subheader("📝 업무 현황")
+    st.caption("※ 제목(공종, 담당자 등)을 클릭하면 **정렬**됩니다. 100% 완료된 건은 위 토글 버튼으로 볼 수 있습니다.")
 
 with c_down:
+    # 엑셀 다운로드
     download_cols = required_cols + ["남은기간"]
     available_download_cols = [c for c in download_cols if c in data.columns]
     
@@ -198,27 +205,21 @@ with c_down:
 # 7. 데이터 에디터
 # -----------------------------------------------------------------------------
 display_cols = ["프로젝트명", "공종", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
-final_display_cols = [c for c in display_cols if c in data.columns]
+final_display_cols = [c for c in display_cols if c in filtered_data.columns]
 
+# [중요] 필터링된 데이터(filtered_data)를 에디터에 표시
 edited_df = st.data_editor(
-    data[final_display_cols],
+    filtered_data[final_display_cols],
     num_rows="dynamic",
     column_config={
         "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
         "공종": st.column_config.SelectboxColumn("공종", options=items_list),
         "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
-        
-        "진행률": st.column_config.NumberColumn(
-            "진행률(입력)", min_value=0, max_value=100, step=5, format="%d"
-        ),
-        "진행상황": st.column_config.ProgressColumn(
-            "진행상황(Bar)", format="%d%%", min_value=0, max_value=100
-        ),
+        "진행률": st.column_config.NumberColumn("진행률(입력)", min_value=0, max_value=100, step=5, format="%d"),
+        "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
         "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
         "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
-        "남은기간": st.column_config.NumberColumn(
-            "남은기간(일)", format="%d일", disabled=True
-        ),
+        "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
     },
     use_container_width=True,
     hide_index=True,
@@ -226,17 +227,31 @@ edited_df = st.data_editor(
 )
 
 # -----------------------------------------------------------------------------
-# 8. 저장 버튼
+# 8. 저장 버튼 (숨겨진 데이터 보존 로직 포함)
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        save_df = edited_df[required_cols].copy()
+        # 1. 화면에서 수정한 데이터 (edited_df) 정리
+        save_part_df = edited_df[required_cols].copy()
         
-        save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-        save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-        save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
+        # 2. 화면에 안 보였던 데이터 (hidden_data) 찾기
+        # (filtered_data의 인덱스를 제외한 나머지 원본 데이터)
+        if not show_completed: # 숨기기 모드였다면
+            hidden_data = data[data["진행률"] == 100][required_cols].copy()
+        else:
+            hidden_data = pd.DataFrame(columns=required_cols) # 다 보고 있었으면 숨겨진게 없음
 
-        conn.update(worksheet="Sheet1", data=save_df)
+        # 3. 수정된 데이터 + 숨겨진 데이터 합치기
+        # (화면 데이터와 숨겨진 데이터를 합쳐야 원본이 유실되지 않음)
+        final_save_df = pd.concat([save_part_df, hidden_data], ignore_index=True)
+        
+        # 4. 날짜 및 형식 통일
+        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
+
+        # 5. 구글 시트 업로드
+        conn.update(worksheet="Sheet1", data=final_save_df)
         st.cache_data.clear()
         
         st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
