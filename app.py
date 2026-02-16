@@ -7,31 +7,54 @@ import time
 import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS
+# 1. 페이지 설정 및 인쇄용 CSS (대폭 수정됨)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# 인쇄 시 적용될 CSS (표 폭 100%, 불필요한 요소 숨김)
+# [수정] 인쇄 시 빈 페이지/잘림 방지를 위한 강력한 CSS
 print_css = """
 <style>
 @media print {
-    header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"], 
-    .stButton, .stDownloadButton, .stExpander, .stForm, div[data-testid="stVerticalBlockBorderWrapper"] {
+    /* 1. Streamlit 기본 UI 완벽하게 숨기기 */
+    header, footer, aside, 
+    [data-testid="stSidebar"], [data-testid="stToolbar"], 
+    .stButton, .stDownloadButton, .stExpander, .stForm, 
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    button {
         display: none !important;
     }
-    .main .block-container {
+
+    /* 2. 배경과 글자색 강제 조정 (잉크 절약 및 가독성 확보) */
+    body, .stApp, .block-container, div[data-testid="stDataEditor"] {
+        background-color: white !important;
+        color: black !important;
+    }
+    
+    /* 표 안의 글자도 검은색으로 강제 */
+    div[data-testid="stDataEditor"] * {
+        color: black !important;
+        font-weight: 500 !important;
+    }
+
+    /* 3. 메인 콘텐츠 강제 확장 (스크롤 해제하여 전체 출력) */
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        overflow: visible !important;
+        height: auto !important;
+        visibility: visible !important;
+    }
+
+    /* 4. 콘텐츠 영역 넓이 100% 및 여백 제거 */
+    .block-container {
         max-width: 100% !important;
         width: 100% !important;
-        padding: 10px !important;
+        padding: 0 !important;
         margin: 0 !important;
     }
-    div[data-testid="stDataEditor"] table {
-        width: 100% !important;
-        font-size: 10px !important;
-    }
+
+    /* 5. 페이지 설정 */
     @page {
-        size: landscape;
-        margin: 0.5cm;
+        size: landscape; /* 가로 방향 */
+        margin: 1cm;
     }
 }
 </style>
@@ -81,10 +104,10 @@ data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).
 # 시각화용 진행상황 컬럼
 data["진행상황"] = data["진행률"]
 
-# 고유 ID 부여 (데이터 유실 방지용)
+# 고유 ID 부여
 data["_original_id"] = data.index
 
-# 리스트 추출 (옵션용)
+# 리스트 추출
 projects_list = sorted(data["프로젝트명"].astype(str).dropna().unique().tolist())
 if "구분" in data.columns:
     items_list = sorted(data["구분"].astype(str).dropna().unique().tolist())
@@ -156,7 +179,7 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # [수정] 차트 레이아웃 정리 (범례 우측 배치, 여백 최적화)
+    # 차트 레이아웃
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
@@ -166,13 +189,13 @@ if not chart_data.empty:
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=30, b=10), # 상단 여백 적절히 조정
+        margin=dict(l=10, r=10, t=30, b=10),
         legend=dict(
-            orientation="v",   # 세로 배치
+            orientation="v",
             yanchor="top",
             y=1,
             xanchor="left",
-            x=1.01             # 차트 오른쪽 바깥
+            x=1.01
         )
     )
     
@@ -218,6 +241,30 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
+# 상세 필터링
+with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=False):
+    f_col1, f_col2, f_col3, f_col4 = st.columns(4)
+    with f_col1:
+        filter_project = st.multiselect("프로젝트명", options=projects_list)
+    with f_col2:
+        filter_item = st.multiselect("구분", options=items_list)
+    with f_col3:
+        filter_member = st.multiselect("담당자", options=members_list)
+    with f_col4:
+        filter_activity = st.multiselect("Activity", options=activity_list)
+
+# 필터 로직
+filtered_df = base_data.copy()
+
+if filter_project:
+    filtered_df = filtered_df[filtered_df["프로젝트명"].isin(filter_project)]
+if filter_item:
+    filtered_df = filtered_df[filtered_df["구분"].isin(filter_item)]
+if filter_member:
+    filtered_df = filtered_df[filtered_df["담당자"].isin(filter_member)]
+if filter_activity:
+    filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
+
 # -----------------------------------------------------------------------------
 # 7. 버튼 그룹
 # -----------------------------------------------------------------------------
@@ -254,11 +301,11 @@ with col_print:
 st.caption("※ 제목(헤더)을 클릭하면 **정렬**됩니다. 수정 후 **저장**을 꼭 누르세요.")
 
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
-final_display_cols = [c for c in display_cols if c in base_data.columns]
+final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
 # 에디터 표시
 edited_df = st.data_editor(
-    base_data,
+    filtered_df,
     num_rows="dynamic",
     column_config={
         "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
@@ -283,14 +330,14 @@ edited_df = st.data_editor(
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 화면 수정 데이터 (ID 포함)
+        # 화면 수정 데이터
         save_part_df = edited_df[required_cols + ["_original_id"]]
         
-        # 숨겨진 데이터 찾기 (편집기에 없는 ID)
+        # 숨겨진 데이터 병합
         visible_ids = edited_df["_original_id"].dropna().tolist()
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 합치기 (저장할 때 ID 컬럼 제거)
+        # 합치기
         save_part_df = save_part_df[required_cols]
         hidden_part_df = hidden_data[required_cols]
         
