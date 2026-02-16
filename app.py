@@ -50,7 +50,7 @@ if 'show_completed' not in st.session_state:
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-data = conn.read(worksheet="Sheet1", ttl=0)
+    data = conn.read(worksheet="Sheet1", ttl=0)
 except Exception as e:
 st.error(f"⚠️ 데이터 불러오기 실패. 구글 시트 탭 이름이 'Sheet1'인지 확인하세요.\n에러: {e}")
 st.stop()
