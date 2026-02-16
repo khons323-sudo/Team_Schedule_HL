@@ -42,7 +42,7 @@ st.title("📅 디자인1본부 1팀 작업일정")
 
 # 세션 상태 초기화
 if 'show_completed' not in st.session_state:
-st.session_state.show_completed = False
+    st.session_state.show_completed = False
 
 # -----------------------------------------------------------------------------
 # 2. 구글 시트 연결
