@@ -4,11 +4,49 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import time
+import streamlit.components.v1 as components
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정
+# 1. 페이지 설정 및 인쇄용 CSS 주입
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
+
+# [핵심] 인쇄 시 적용될 CSS 스타일 정의
+# - 버튼, 입력창 등을 숨기고 표와 차트만 출력
+# - 표 너비를 100%로 강제하여 용지에 맞춤
+print_css = """
+<style>
+@media print {
+    /* 1. 인쇄할 때 숨길 항목들 (버튼, 헤더, 사이드바, 필터박스 등) */
+    header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"], 
+    .stButton, .stDownloadButton, .stExpander, .stForm, div[data-testid="stVerticalBlockBorderWrapper"] {
+        display: none !important;
+    }
+    
+    /* 2. 전체 레이아웃 여백 제거 및 폭 100% 설정 */
+    .main .block-container {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 10px !important;
+        margin: 0 !important;
+    }
+
+    /* 3. 데이터 에디터(표)와 차트 강제 확장 */
+    div[data-testid="stDataEditor"] table {
+        width: 100% !important;
+        font-size: 10px !important; /* 인쇄 시 글자 크기 조정 */
+    }
+    
+    /* 4. 페이지 설정 (가로 방향 권장) */
+    @page {
+        size: landscape;
+        margin: 0.5cm;
+    }
+}
+</style>
+"""
+st.markdown(print_css, unsafe_allow_html=True)
+
 st.title("📅 디자인1본부 1팀 작업일정")
 
 # 세션 상태 초기화
@@ -55,8 +93,7 @@ data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).
 # 4) 시각화용 진행상황 컬럼
 data["진행상황"] = data["진행률"]
 
-# 5) [중요] 필터링 후 저장 시 데이터 유실 방지를 위한 고유 ID(인덱스) 부여
-# (데이터프레임의 인덱스를 별도 컬럼으로 보존)
+# 5) 고유 ID 부여
 data["_original_id"] = data.index
 
 # 6) 리스트 추출 (옵션용)
@@ -95,7 +132,6 @@ with st.expander("➕ 새 일정 등록하기"):
                 "진행률": 0
             }])
             
-            # 저장 시에는 _original_id 제외하고 저장
             save_data = data[required_cols].copy()
             save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
             save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
@@ -116,7 +152,7 @@ if st.session_state.show_completed:
 else:
     base_data = data[data["진행률"] < 100].copy()
 
-# 2. 차트용 데이터 (날짜 필수)
+# 2. 차트용 데이터
 chart_data = base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
@@ -187,10 +223,8 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
-# -----------------------------------------------------------------------------
-# [요청] 상세 필터링 기능 (헤더 클릭 대신 상단에 배치)
-# -----------------------------------------------------------------------------
-with st.expander("🔍 상세 필터링 (원하는 항목을 선택하여 데이터를 찾으세요)", expanded=False):
+# 상세 필터링
+with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=True):
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1:
         filter_project = st.multiselect("프로젝트명", options=projects_list)
@@ -214,15 +248,15 @@ if filter_activity:
     filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
 
 # -----------------------------------------------------------------------------
-# 7. 버튼 그룹 (다운로드 & 완료업무 토글)
+# 7. 버튼 그룹 (다운로드, 완료토글, 인쇄)
 # -----------------------------------------------------------------------------
-col_down, col_btn, col_blank = st.columns([0.2, 0.2, 0.6])
+# [수정] 인쇄 버튼을 위해 컬럼 비율 조정
+col_down, col_toggle, col_print, col_blank = st.columns([0.2, 0.2, 0.15, 0.45])
 
 with col_down:
     # 엑셀 다운로드
     download_cols = required_cols + ["남은기간"]
     available_download_cols = [c for c in download_cols if c in data.columns]
-    
     csv = data[available_download_cols].to_csv(index=False).encode('utf-8-sig')
     st.download_button(
         label="📥 엑셀(CSV) 다운로드",
@@ -232,22 +266,25 @@ with col_down:
         use_container_width=True
     )
 
-with col_btn:
-    # 완료된 업무 보기/끄기 토글 버튼
+with col_toggle:
+    # 완료된 업무 보기/끄기
     btn_text = "🙈 완료된 업무 끄기" if st.session_state.show_completed else "👁️ 완료된 업무 보기"
-    
     if st.button(btn_text, use_container_width=True):
         st.session_state.show_completed = not st.session_state.show_completed
         st.rerun()
 
+with col_print:
+    # [추가] 인쇄 버튼
+    # 버튼을 누르면 자바스크립트 window.print()를 실행
+    if st.button("🖨️ 페이지 인쇄", use_container_width=True):
+        st.components.v1.html("<script>window.print()</script>", height=0, width=0)
+
 # -----------------------------------------------------------------------------
 # 8. 데이터 에디터
 # -----------------------------------------------------------------------------
-st.caption("※ 제목(헤더)을 클릭하면 **오름차순/내림차순 정렬**이 가능합니다. 필터링은 위 '🔍 상세 필터링'을 이용하세요.")
+st.caption("※ 제목(헤더)을 클릭하면 **정렬**됩니다. 수정 후 **저장**을 꼭 누르세요.")
 
-# 화면에 표시할 컬럼 지정
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
-# _original_id는 편집기에서는 숨겨야 함 (데이터 추적용)
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
 edited_df = st.data_editor(
@@ -265,7 +302,7 @@ edited_df = st.data_editor(
         "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
         "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
     },
-    column_order=final_display_cols, # 표시 순서 강제 및 _original_id 숨김
+    column_order=final_display_cols,
     use_container_width=True,
     hide_index=True,
     key="data_editor"
@@ -276,26 +313,15 @@ edited_df = st.data_editor(
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 1. 수정된 데이터 (화면에 보이는 데이터)
-        # 여기서 필요한 컬럼 + 추적용 ID만 가져옴
-        cols_to_save = required_cols + ["_original_id"]
+        # 1. 화면 수정 데이터
+        save_part_df = edited_df[required_cols + ["_original_id"]]
         
-        # 새로 추가된 행은 _original_id가 NaN일 것임
-        # edited_df에는 사용자가 수정한 내용이 들어있음
-        
-        # 2. 숨겨져 있던 데이터 찾기
-        # 전체 원본 데이터(data) 중에서, 현재 편집된 데이터(edited_df)에 없는 행들을 찾아야 함.
-        # 기준은 _original_id 사용
-        
-        # 현재 편집창에 있는 ID 목록
+        # 2. 숨겨진 데이터 병합
         visible_ids = edited_df["_original_id"].dropna().tolist()
-        
-        # 숨겨진 데이터 = 원본 데이터 중 ID가 visible_ids에 없는 것
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 3. 데이터 병합 (수정된 데이터 + 숨겨진 데이터)
-        # 저장할 때는 _original_id 제거하고 순수 데이터만 저장
-        save_part_df = edited_df[required_cols]
+        # 3. 데이터 병합
+        save_part_df = save_part_df[required_cols] # 저장할 땐 ID 제외
         hidden_part_df = hidden_data[required_cols]
         
         final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
