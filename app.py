@@ -17,45 +17,49 @@ st.title("📅 디자인1본부 1팀 작업일정")
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # [수정] usecols 제거: 열 개수가 달라도 에러 안 나게 전체를 다 읽어옴
+    # 모든 컬럼 읽어오기 (캐시 끄기)
     data = conn.read(worksheet="Sheet1", ttl=0)
 except Exception as e:
     st.error(f"⚠️ 데이터 불러오기 실패. 구글 시트 탭 이름이 'Sheet1'인지 확인하세요.\n에러: {e}")
     st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. 데이터 전처리 (안전장치 추가)
+# 3. 데이터 전처리 (안전장치 및 계산)
 # -----------------------------------------------------------------------------
-# [핵심 수정] 필수 컬럼이 시트에 없는 경우, 에러 대신 컬럼을 자동으로 생성해버림 (Crash 방지)
+# [중요] 시트에 필수 컬럼이 없으면 프로그램이 죽지 않게 빈 컬럼 생성
+# (보내주신 캡처에 '남은기간'이 이미 있으니 문제없겠지만, 안전을 위해 유지)
 required_cols = ["프로젝트명", "공종", "담당자", "Activity", "시작일", "종료일", "진행률"]
-for col in required_cols:
-    if col not in data.columns:
-        if col == "진행률":
-            data[col] = 0 # 진행률 없으면 0으로 채움
-        else:
-            data[col] = "" # 나머지는 빈카트로 채움
+
+# 데이터가 비어있거나 컬럼이 모자랄 경우 처리
+if data.empty:
+    for col in required_cols:
+        data[col] = ""
+    data["진행률"] = 0
 
 # 1) 날짜 변환
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 
-# 2) 남은기간 계산 (오늘 기준)
+# 2) 남은기간 계산 (오늘 기준) - 구글시트에 값이 있어도 파이썬이 새로 계산해서 덮어씀 (정확도 위해)
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 
-# 3) 진행률 숫자 변환 (안전장치 강화)
-# 데이터가 비어있거나 이상한 문자열일 경우 처리
-if data["진행률"].dtype == 'object':
+# 3) 진행률 숫자 변환 (문자열 % 제거 및 정수 변환)
+if "진행률" in data.columns and data["진행률"].dtype == 'object':
     data["진행률"] = data["진행률"].astype(str).str.replace('%', '')
+
 data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
 
-# 4) 시각화용 진행상황 컬럼
+# 4) 시각화용 진행상황 컬럼 복사
 data["진행상황"] = data["진행률"]
 
 # 5) 드롭다운용 리스트 추출
-projects_list = sorted(data["프로젝트명"].dropna().unique().tolist())
-items_list = sorted(data["공종"].dropna().astype(str).unique().tolist()) # 공종이 숫자여도 문자로 변환
-members_list = sorted(data["담당자"].dropna().unique().tolist())
+projects_list = sorted(data["프로젝트명"].astype(str).dropna().unique().tolist())
+if "공종" in data.columns:
+    items_list = sorted(data["공종"].astype(str).dropna().unique().tolist())
+else:
+    items_list = []
+members_list = sorted(data["담당자"].astype(str).dropna().unique().tolist())
 
 # -----------------------------------------------------------------------------
 # 4. [입력 섹션] 새 일정 등록
@@ -84,7 +88,8 @@ with st.expander("➕ 새 일정 등록하기"):
                 "진행률": 0
             }])
             
-            # 저장할 때는 계산된 컬럼 제외하고 원본 구조 유지
+            # 저장할 때는 '남은기간', '진행상황' 제외하고 원본 구조로 저장
+            # (남은기간은 매일매일 바뀌므로 저장하지 않고 불러올 때 계산하는게 맞습니다)
             save_data = data[required_cols].copy()
             save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
             save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
@@ -147,11 +152,15 @@ c_title, c_down = st.columns([0.8, 0.2])
 
 with c_title:
     st.subheader("📝 업무 현황 수정")
-    st.caption("※ **'진행률(입력)'**에 숫자를 입력하면 오른쪽 바가 변합니다. (남은기간은 자동 계산)")
+    st.caption("※ **'진행률(입력)'**에 숫자를 입력하면 오른쪽 바가 변합니다.")
 
 with c_down:
-    # 엑셀 다운로드 (원본 데이터 기준)
-    csv = data[required_cols].to_csv(index=False).encode('utf-8-sig')
+    # 엑셀 다운로드 (필수 컬럼 + 남은기간 포함해서 다운로드 제공)
+    download_cols = required_cols + ["남은기간"]
+    # 현재 데이터에 있는 컬럼만 추려서 다운로드
+    available_download_cols = [c for c in download_cols if c in data.columns]
+    
+    csv = data[available_download_cols].to_csv(index=False).encode('utf-8-sig')
     st.download_button(
         label="📥 엑셀(CSV) 다운로드",
         data=csv,
@@ -160,9 +169,9 @@ with c_down:
     )
 
 # -----------------------------------------------------------------------------
-# 7. 데이터 에디터
+# 7. 데이터 에디터 (풀다운 + 진행률 분리)
 # -----------------------------------------------------------------------------
-# 보여줄 컬럼 순서 지정
+# 화면에 보여줄 컬럼 순서
 display_cols = ["프로젝트명", "공종", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in data.columns]
 
@@ -177,11 +186,13 @@ edited_df = st.data_editor(
         "진행률": st.column_config.NumberColumn(
             "진행률(입력)", min_value=0, max_value=100, step=5, format="%d"
         ),
+        # [수정완료] ProgressColumn에서 disabled=True 제거 (에러 원인 해결)
         "진행상황": st.column_config.ProgressColumn(
-            "진행상황(Bar)", format="%d%%", min_value=0, max_value=100, disabled=True
+            "진행상황(Bar)", format="%d%%", min_value=0, max_value=100
         ),
         "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
         "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
+        # NumberColumn은 disabled=True 사용 가능 (수정 불가 처리)
         "남은기간": st.column_config.NumberColumn(
             "남은기간(일)", format="%d일", disabled=True
         ),
@@ -196,7 +207,7 @@ edited_df = st.data_editor(
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 저장할 컬럼만 추출 (남은기간, 진행상황 제외)
+        # 저장할 때는 '진행상황', '남은기간' 제외 (계산값은 저장 안함)
         save_df = edited_df[required_cols].copy()
         
         save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
