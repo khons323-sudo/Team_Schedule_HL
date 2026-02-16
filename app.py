@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-import plotly.graph_objects as go
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime
 import time
@@ -102,18 +101,18 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.subheader("📊 전체 일정 (Gantt Chart)")
 
-# [기능추가] 완료된 항목 숨기기 토글
+# 완료된 항목 숨기기 토글
 col_toggle, col_dummy = st.columns([0.3, 0.7])
 with col_toggle:
     show_completed = st.toggle("✅ 완료된 업무(100%) 보기", value=False)
 
 # 필터링 로직
 if show_completed:
-    filtered_data = data.copy() # 전체 다 보기
+    filtered_data = data.copy() 
 else:
-    filtered_data = data[data["진행률"] < 100].copy() # 100 미만만 보기
+    filtered_data = data[data["진행률"] < 100].copy()
 
-# 차트용 데이터 (날짜 없는 행 제외)
+# 차트용 데이터
 chart_data = filtered_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
@@ -126,39 +125,38 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # [디자인 수정] 차트 스타일링
+    # [디자인 수정] 차트 스타일링 (배경색 어둡게 설정하여 흰 글씨 부각)
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
         barmode='group', 
         bargap=0.1,
         height=600,
-        # 배경색 설정 (흰색 글씨가 보이도록 어둡게)
+        # 차트 영역(plot)과 바깥 영역(paper) 모두 어두운 회색으로 설정
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
-        font=dict(color="white"), # 기본 글자색 흰색
+        font=dict(color="white"), # 전체 글자색 흰색
     )
     
-    # [디자인 수정] 축 스타일링
+    # [에러 수정 완료] X축 설정 (backgroundcolor 삭제됨)
     fig.update_xaxes(
         showgrid=True,
         gridcolor='rgba(255, 255, 255, 0.1)', # 세로 그리드 연하게
-        tickfont=dict(color="white"),
-        # 날짜 나오는 칸 Grey 톤 처리
-        showbackground=True,
-        backgroundcolor="rgb(80, 80, 80)"
+        tickfont=dict(color="white"), # 날짜 글씨 흰색
+        side="bottom" 
     )
     
+    # Y축 설정 (프로젝트명 흰색)
     fig.update_yaxes(
         autorange="reversed",
-        showticklabels=True, # [수정] 프로젝트명 다시 표시
-        tickfont=dict(color="white", size=14, family="Arial Black"), # 흰색, 굵게
+        showticklabels=True, # 프로젝트명 표시
+        tickfont=dict(color="white", size=14), # 흰색 글씨
         showgrid=True, # 가로 그리드 켜기
-        gridcolor='white', # [요청] 프로젝트 구분선 실선(White)
+        gridcolor='rgba(255, 255, 255, 0.3)', # 프로젝트 구분선 (실선, 투명도 조절)
         gridwidth=1,
     )
 
-    # [수정] 분기별 구분선 (실선)
+    # 분기별 구분선 (실선)
     min_date = chart_data["시작일"].min()
     max_date = chart_data["종료일"].max()
     
@@ -168,9 +166,9 @@ if not chart_data.empty:
                 q_date = datetime(year, month, 1)
                 fig.add_vline(
                     x=q_date.timestamp() * 1000, 
-                    line_width=2, 
-                    line_dash="solid", # [요청] 점선 -> 실선
-                    line_color="rgba(255, 255, 255, 0.5)" # 약간 투명한 흰색 실선
+                    line_width=1, 
+                    line_dash="solid", # 실선
+                    line_color="rgba(255, 255, 255, 0.6)" # 약간 투명한 흰색
                 )
 
     st.plotly_chart(fig, use_container_width=True)
@@ -184,9 +182,8 @@ st.divider()
 c_title, c_down = st.columns([0.8, 0.2])
 
 with c_title:
-    # [문구수정] 업무 현황 수정 -> 업무 현황
     st.subheader("📝 업무 현황")
-    st.caption("※ 제목(공종, 담당자 등)을 클릭하면 **정렬**됩니다. 100% 완료된 건은 위 토글 버튼으로 볼 수 있습니다.")
+    st.caption("※ 제목(공종, 담당자 등)을 클릭하면 **정렬**됩니다.")
 
 with c_down:
     # 엑셀 다운로드
@@ -207,7 +204,6 @@ with c_down:
 display_cols = ["프로젝트명", "공종", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_data.columns]
 
-# [중요] 필터링된 데이터(filtered_data)를 에디터에 표시
 edited_df = st.data_editor(
     filtered_data[final_display_cols],
     num_rows="dynamic",
@@ -227,30 +223,27 @@ edited_df = st.data_editor(
 )
 
 # -----------------------------------------------------------------------------
-# 8. 저장 버튼 (숨겨진 데이터 보존 로직 포함)
+# 8. 저장 버튼
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 1. 화면에서 수정한 데이터 (edited_df) 정리
+        # 1. 화면 수정 데이터
         save_part_df = edited_df[required_cols].copy()
         
-        # 2. 화면에 안 보였던 데이터 (hidden_data) 찾기
-        # (filtered_data의 인덱스를 제외한 나머지 원본 데이터)
-        if not show_completed: # 숨기기 모드였다면
+        # 2. 숨겨진 데이터 병합
+        if not show_completed: 
             hidden_data = data[data["진행률"] == 100][required_cols].copy()
         else:
-            hidden_data = pd.DataFrame(columns=required_cols) # 다 보고 있었으면 숨겨진게 없음
+            hidden_data = pd.DataFrame(columns=required_cols)
 
-        # 3. 수정된 데이터 + 숨겨진 데이터 합치기
-        # (화면 데이터와 숨겨진 데이터를 합쳐야 원본이 유실되지 않음)
         final_save_df = pd.concat([save_part_df, hidden_data], ignore_index=True)
         
-        # 4. 날짜 및 형식 통일
+        # 3. 형식 통일
         final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        # 5. 구글 시트 업로드
+        # 4. 업로드
         conn.update(worksheet="Sheet1", data=final_save_df)
         st.cache_data.clear()
         
