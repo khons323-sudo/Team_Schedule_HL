@@ -255,7 +255,7 @@ if not chart_data.empty:
         text=chart_data["담당자_라벨"], 
         mode="text",
         textposition="middle right", 
-        textfont=dict(color="rgb(50, 50, 50)", size=12, weight="bold"),
+        textfont=dict(color="rgb(250, 250, 250)", size=8, family="Arial"),
         showlegend=False
     ))
     
