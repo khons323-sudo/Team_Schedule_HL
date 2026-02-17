@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
@@ -25,11 +26,7 @@ custom_css = """
         color: rgb(49, 51, 63);
     }
     
-    /* 상단 여백 최소화 */
-    .block-container {
-        padding-top: 1rem !important;
-        padding-bottom: 2rem !important;
-    }
+    /* 상단 여백 최소화 (삭제 요청 복구됨 - 기본값) */
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -50,39 +47,24 @@ custom_css = """
     div[data-testid="stCheckbox"] { margin-top: 8px; }
     div[data-testid="stCheckbox"] label { font-size: 14px !important; }
     
-    /* 팝오버 버튼(➕) 스타일 */
-    div[data-testid="stPopover"] button {
-        margin-top: 8px;
-        font-weight: bold;
-    }
-
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 1. 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print, 
-        .sort-area, .stSelectbox, .stCheckbox,
-        div[data-testid="stPopover"]
-        { 
-            display: none !important; 
-        }
+        .no-print, .sort-area, .stSelectbox, .stCheckbox
+        { display: none !important; }
 
-        /* 2. 배경 흰색, 글자 검은색 강제 */
         body, .stApp { 
             background-color: white !important; 
             color: black !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
+            zoom: 75%; 
         }
-        
-        * { 
-            text-shadow: none !important; 
-        }
+        * { text-shadow: none !important; }
 
-        /* 3. 콘텐츠 영역 100% 확장 */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
@@ -98,37 +80,19 @@ custom_css = """
             position: static !important;
         }
 
-        /* 4. 차트 및 표 설정 */
+        /* 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .js-plotly-plot { 
             break-inside: avoid !important; 
             margin-bottom: 20px !important; 
             width: 100% !important; 
         }
         
-        div[data-testid="stDataEditor"] table { 
-            font-size: 10px !important; 
-            border: 1px solid #000 !important; 
-            width: 100% !important;
-            color: black !important;
-        }
-        
-        div[data-testid="stDataEditor"] th {
-            background-color: #cccccc !important;
-            color: black !important;
-            border-bottom: 2px solid black !important;
-        }
-        
-        div[data-testid="stDataEditor"] td {
-            background-color: white !important;
-            color: black !important;
-            border-bottom: 1px solid #ddd !important;
-        }
+        /* 표 헤더/내용 스타일 */
+        div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; width: 100% !important; color: black !important; }
+        div[data-testid="stDataEditor"] th { background-color: #cccccc !important; color: black !important; border-bottom: 2px solid black !important; }
+        div[data-testid="stDataEditor"] td { background-color: white !important; color: black !important; border-bottom: 1px solid #ddd !important; }
 
-        /* 5. 페이지 설정 */
-        @page { 
-            size: portrait; 
-            margin: 0.5cm; 
-        }
+        @page { size: portrait; margin: 0.5cm; }
     }
 </style>
 """
@@ -142,7 +106,7 @@ if 'show_completed' not in st.session_state:
     st.session_state['show_completed'] = False
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 세션 상태 초기화
+# 2. 데이터 로드 및 캐싱
 # -----------------------------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
@@ -157,20 +121,22 @@ def process_dataframe(df):
             df[col] = ""
         df["진행률"] = 0
     
-    # 여기서 변환을 하지만, 세션에 저장되었다가 불러올 때 다시 문자가 될 수 있음
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
-    
+    today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
+    df["남은기간"] = (df["종료일"] - today).dt.days.fillna(0).astype(int)
+
     if "진행률" in df.columns and df["진행률"].dtype == 'object':
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
     df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
     
+    df["진행상황"] = df["진행률"]
     if "_original_id" not in df.columns:
         df["_original_id"] = df.index
     
     return df
 
-# 세션에 데이터가 없으면 최초 로드
+# 데이터 초기화
 if 'data' not in st.session_state:
     try:
         raw_data = load_data_from_sheet()
@@ -179,18 +145,10 @@ if 'data' not in st.session_state:
         st.error(f"⚠️ 데이터 불러오기 실패: {e}")
         st.stop()
 
-# 이후 로직에서는 세션 데이터를 사용
 data = st.session_state['data'].copy()
-
-# -----------------------------------------------------------------------------
-# [에러 해결] 날짜 형식을 여기서 다시 한번 강제 변환
-# -----------------------------------------------------------------------------
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
-
-# 실시간 계산
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
-# 날짜 변환 후 계산하므로 TypeError 방지됨
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 data["진행상황"] = data["진행률"]
 
@@ -223,14 +181,11 @@ if not chart_data.empty:
     chart_data["프로젝트명_표시"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x, 12))
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
     
-    # 정렬
     chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
     
     unique_members = chart_data["담당자"].unique()
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
-    
-    from plotly.subplots import make_subplots
     
     fig = make_subplots(
         rows=1, cols=5,
@@ -244,16 +199,17 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
 
+    # [수정] 모든 텍스트 컬럼 중앙 정렬 (middle center)
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=10), hoverinfo="skip")
 
-    # Col 1: 프로젝트명
-    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=1)
+    # Col 1: 프로젝트명 (middle center)
+    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
     # Col 2: 구분
     fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["구분"], **common_props), row=1, col=2)
     # Col 3: 담당자
     fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["담당자"], **common_props), row=1, col=3)
-    # Col 4: Activity
-    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=chart_data["Activity_표시"], textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=4)
+    # Col 4: Activity (middle center)
+    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["Activity_표시"], **common_props), row=1, col=4)
 
     # Col 5: Bar Chart
     for idx, row in chart_data.iterrows():
@@ -261,7 +217,6 @@ if not chart_data.empty:
         end_ms = row["종료일"].timestamp() * 1000
         duration = end_ms - start_ms
         
-        # Bar 내부 텍스트
         day_diff = (row["종료일"] - row["시작일"]).days + 1
         bar_text = f"{day_diff}일 / {row['진행률']}%"
 
@@ -277,16 +232,12 @@ if not chart_data.empty:
             showlegend=False
         ), row=1, col=5)
         
-        # 바 끝 담당자 이름
-        fig.add_trace(go.Scatter(
-            x=[row["종료일"]], y=[idx],
-            text=f"  {row['담당자']}", mode="text", textposition="middle right",
-            textfont=dict(color="#333333", size=8), showlegend=False, hoverinfo="skip"
-        ), row=1, col=5)
+        # [수정] 담당자 이름 표기 삭제됨
 
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
     
+    # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
@@ -296,17 +247,21 @@ if not chart_data.empty:
         tickfont=dict(size=10, color="black"),
         gridcolor='rgba(0,0,0,0.1)', row=1, col=5
     )
-    fig.update_yaxes(showticklabels=False, showgrid=False, row=1, col=5)
+    fig.update_yaxes(
+        showticklabels=False, showgrid=False, 
+        fixedrange=True, # 세로 줌 잠금
+        row=1, col=5
+    )
 
-    # 오늘 날짜 (빨간 파선)
     fig.add_vline(x=today.timestamp() * 1000, line_width=2, line_dash="dash", line_color="rgba(255, 0, 0, 0.6)", row=1, col=5)
 
-    # 가로 구분선
     shapes = []
     for i in range(num_rows + 1):
         shapes.append(dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(0,0,0,0.1)", width=1)))
     
-    chart_height = max(500, num_rows * 40 + 50)
+    # [수정] 높이 계산 (최대 510, 행 높이 30)
+    calculated_height = num_rows * 30 + 50
+    chart_height = min(510, max(300, calculated_height))
     
     fig.update_layout(
         height=chart_height,
@@ -321,7 +276,6 @@ if not chart_data.empty:
     )
     
     fig.update_annotations(font=dict(size=15, color="black"))
-
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("표시할 일정이 없습니다.")
@@ -363,7 +317,6 @@ with st.expander("➕ 새 일정 등록하기"):
                     "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
                 }])
                 
-                # 세션에 즉시 반영
                 st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
                 
                 try:
@@ -374,6 +327,7 @@ with st.expander("➕ 새 일정 등록하기"):
                     save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
                     save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
                     conn.update(worksheet="Sheet1", data=save_data)
+                    load_data_from_sheet.clear()
                     st.success("추가되었습니다!")
                     time.sleep(0.5)
                     st.rerun()
@@ -385,7 +339,9 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
+# [수정] 간편 추가 버튼 삭제됨
+# [제목: 0.22] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.38]
+c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -404,10 +360,6 @@ with c_show:
     if show_completed != st.session_state['show_completed']:
         st.session_state['show_completed'] = show_completed
         st.rerun()
-
-with c_add:
-    with st.popover("➕", use_container_width=True, help="간편 추가"):
-        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
@@ -446,6 +398,7 @@ edited_df = st.data_editor(
     key="data_editor"
 )
 
+# [수정] 쿼터 초과 방지 및 데이터 무결성 확보 로직
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
         with st.spinner("저장 중..."):
@@ -463,14 +416,15 @@ if st.button("💾 변경사항 저장하기", type="primary"):
                 save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
                 save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
                 
+                # 구글 시트에 업데이트
                 conn.update(worksheet="Sheet1", data=save_df)
                 
-                # 캐시 삭제 및 세션 갱신
+                # 캐시 초기화 및 세션 갱신
                 load_data_from_sheet.clear()
                 st.session_state['data'] = process_dataframe(save_df)
                 
-                st.toast("저장되었습니다!", icon="✅")
-                time.sleep(0.5)
+                st.success("저장되었습니다.")
+                time.sleep(1) # [API 쿼터 방지] 너무 빠른 리프레시 방지
                 st.rerun()
             else:
                 st.error("데이터 병합 오류: 고유 ID를 찾을 수 없습니다.")
