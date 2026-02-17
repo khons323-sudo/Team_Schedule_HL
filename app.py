@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
 import textwrap 
+import holidays # [New] 공휴일 계산 라이브러리
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 인쇄용 CSS
@@ -18,22 +19,60 @@ print_css = """
 div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
 div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
 
-/* 인쇄 모드 스타일 */
+/* [중요] 인쇄 모드 스타일 */
 @media print {
-    header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
+    /* 1. 불필요한 UI 숨기기 */
+    header, footer, aside, 
+    [data-testid="stSidebar"], [data-testid="stToolbar"], 
     .stButton, .stDownloadButton, .stExpander, .stForm, 
-    div[data-testid="stVerticalBlockBorderWrapper"], button { display: none !important; }
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    button {
+        display: none !important;
+    }
 
-    body, .stApp { background-color: white !important; -webkit-print-color-adjust: exact !important; }
-    * { color: black !important; text-shadow: none !important; }
+    /* 2. 배경 및 글자색 강제 설정 (흰 종이에 검은 글씨) */
+    body, .stApp {
+        background-color: white !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+    
+    * {
+        color: black !important;
+        text-shadow: none !important;
+    }
 
-    .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; overflow: visible !important; display: block !important; }
+    /* 3. 메인 콘텐츠 확장 */
+    .main .block-container {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
 
-    div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; page-break-inside: avoid !important; margin-bottom: 20px !important; }
-    div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; }
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+    }
 
-    @page { size: landscape; margin: 0.5cm; }
+    /* 4. 차트 및 표가 페이지 중간에 잘리지 않도록 설정 */
+    div[data-testid="stDataEditor"], .stPlotlyChart {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        margin-bottom: 20px !important;
+    }
+
+    /* 5. 데이터 표 스타일 */
+    div[data-testid="stDataEditor"] table {
+        font-size: 10px !important;
+        border: 1px solid #000 !important;
+    }
+
+    /* 6. 페이지 설정 */
+    @page {
+        size: landscape;
+        margin: 0.5cm;
+    }
 }
 </style>
 """
@@ -46,15 +85,14 @@ if 'show_completed' not in st.session_state:
     st.session_state.show_completed = False
 
 # -----------------------------------------------------------------------------
-# 2. 구글 시트 연결 (안전하게 로드)
+# 2. 구글 시트 연결
 # -----------------------------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 try:
-    # ttl=600: 10분간 캐시 유지 (속도 향상), 저장 시에는 캐시 삭제됨
-    data = conn.read(worksheet="Sheet1", ttl=600)
+    data = conn.read(worksheet="Sheet1", ttl=0)
 except Exception as e:
-    st.error(f"⚠️ 데이터 불러오기 오류. 잠시 후 다시 시도해주세요.\n(에러 내용: {e})")
+    st.error(f"⚠️ 데이터 불러오기 실패. 구글 시트 탭 이름이 'Sheet1'인지 확인하세요.\n에러: {e}")
     st.stop()
 
 # -----------------------------------------------------------------------------
@@ -117,9 +155,11 @@ with st.expander("➕ 새 일정 등록하기"):
         with c1:
             final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
             final_item = input_or_select("2. 구분", items_list, "item")
+
         with c2:
             final_member = input_or_select("3. 담당자", members_list, "memb")
             final_act = input_or_select("4. Activity", activity_list, "act")
+
         with c3:
             p_start = st.date_input("5. 시작일", datetime.today())
             p_end = st.date_input("6. 종료일", datetime.today())
@@ -131,21 +171,22 @@ with st.expander("➕ 새 일정 등록하기"):
                 st.error("프로젝트명을 입력해주세요.")
             else:
                 new_row = pd.DataFrame([{
-                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
-                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
-                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
+                    "프로젝트명": final_name,
+                    "구분": final_item,
+                    "담당자": final_member,
+                    "Activity": final_act,
+                    "시작일": p_start.strftime("%Y-%m-%d"),
+                    "종료일": p_end.strftime("%Y-%m-%d"),
+                    "진행률": 0
                 }])
                 
-                # 저장 로직
                 save_data = data[required_cols].copy()
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
                 
                 final_df = pd.concat([save_data, new_row], ignore_index=True)
-                
-                # 업로드 및 캐시 삭제
                 conn.update(worksheet="Sheet1", data=final_df)
-                st.cache_data.clear() # 모든 캐시 초기화
+                st.cache_data.clear()
                 st.rerun()
 
 # -----------------------------------------------------------------------------
@@ -176,9 +217,12 @@ if not chart_data.empty:
         title=""
     )
     
-    # 날짜 라벨 (Wide Range)
+    # -----------------------------------------------------------
+    # 날짜 라벨 생성 (Wide Range)
+    # -----------------------------------------------------------
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
+    
     if pd.isnull(min_dt): min_dt = today
     if pd.isnull(max_dt): max_dt = today
     
@@ -196,65 +240,91 @@ if not chart_data.empty:
         tick_text.append(label)
         curr += timedelta(days=1)
 
-    # 초기 화면 2주
+    # 초기 화면 2주 범위
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
 
     fig.update_layout(
-        xaxis_title="", yaxis_title="", 
-        barmode='group', bargap=0.2, height=500,
-        paper_bgcolor='rgb(40, 40, 40)', plot_bgcolor='rgb(40, 40, 40)',
+        xaxis_title="", 
+        yaxis_title="", 
+        barmode='group', 
+        bargap=0.2, 
+        height=500,
+        paper_bgcolor='rgb(40, 40, 40)',
+        plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
         margin=dict(l=10, r=10, t=60, b=10),
         dragmode="pan", 
-        legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
+        legend=dict(
+            orientation="v",
+            yanchor="bottom",
+            y=0,
+            xanchor="left",
+            x=1.01
+        ),
         xaxis=dict(range=[view_start, view_end])
     )
     
     fig.update_xaxes(
-        side="top", tickmode="array", tickvals=tick_vals, ticktext=tick_text,
+        side="top",
+        tickmode="array", 
+        tickvals=tick_vals,
+        ticktext=tick_text,
         tickfont=dict(color="white", size=10),
-        showgrid=True, gridcolor='rgba(255, 255, 255, 0.1)', griddash='dot'
+        showgrid=True,
+        gridcolor='rgba(255, 255, 255, 0.1)', 
+        griddash='dot'
     )
     
     fig.update_yaxes(
-        fixedrange=True, autorange="reversed", showticklabels=True,
+        fixedrange=True,
+        autorange="reversed",
+        showticklabels=True,
         tickfont=dict(color="white", size=12),
-        showgrid=True, gridcolor='rgba(200, 200, 200, 0.3)', gridwidth=1,
+        showgrid=True,
+        gridcolor='rgba(200, 200, 200, 0.3)',
+        gridwidth=1,
         layer="below traces"
     )
 
-    # [수정] 공휴일/주말 안전하게 처리 (라이브러리 없을 경우 대비)
-    try:
-        import holidays
-        kr_holidays = holidays.KR()
-        has_holidays = True
-    except ImportError:
-        kr_holidays = []
-        has_holidays = False
-        # 만약 에러나면 여기서 멈추지 않고 주말만이라도 그리기 위해 패스
+    # -----------------------------------------------------------
+    # [수정] 주말 및 공휴일 그리기
+    # -----------------------------------------------------------
+    # 한국 공휴일 객체 생성
+    kr_holidays = holidays.KR()
 
     if pd.notnull(label_start) and pd.notnull(label_end):
         c_date = label_start
         while c_date <= label_end:
+            # 주말(5,6) 또는 공휴일이면 회색 배경
+            # c_date.date()로 날짜만 비교해야 holidays 라이브러리 인식 가능
             is_weekend = c_date.weekday() in [5, 6]
-            is_holiday = False
-            if has_holidays and c_date.date() in kr_holidays:
-                is_holiday = True
+            is_holiday = c_date.date() in kr_holidays
             
             if is_weekend or is_holiday:
                 fig.add_vrect(
-                    x0=c_date, x1=c_date + timedelta(days=1),
-                    fillcolor="rgba(100, 100, 100, 0.3)", layer="below", line_width=0
+                    x0=c_date, 
+                    x1=c_date + timedelta(days=1), # 1일 단위로 칠함 (겹쳐도 상관없음)
+                    fillcolor="rgba(100, 100, 100, 0.3)", 
+                    layer="below", 
+                    line_width=0
                 )
+            
+            # 월요일 굵은 선 (주간 구분선)
             if c_date.weekday() == 0:
                 fig.add_vline(
                     x=c_date.timestamp() * 1000, 
-                    line_width=2, line_dash="solid", line_color="rgba(200, 200, 200, 0.6)"
+                    line_width=2, 
+                    line_dash="solid",
+                    line_color="rgba(200, 200, 200, 0.6)"
                 )
             c_date += timedelta(days=1)
 
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
+    st.plotly_chart(
+        fig, 
+        use_container_width=True,
+        config={'scrollZoom': False, 'displayModeBar': True}
+    )
 else:
     st.info("표시할 일정이 없습니다.")
 
@@ -264,6 +334,7 @@ else:
 st.divider()
 st.subheader("📝 업무 현황")
 
+# 상세 필터링
 with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=False):
     f_col1, f_col2, f_col3, f_col4 = st.columns(4)
     with f_col1: filter_project = st.multiselect("프로젝트명", options=projects_list)
@@ -271,6 +342,7 @@ with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", 
     with f_col3: filter_member = st.multiselect("담당자", options=members_list)
     with f_col4: filter_activity = st.multiselect("Activity", options=activity_list)
 
+# 1차 필터링 적용
 filtered_df = base_data.copy()
 if filter_project: filtered_df = filtered_df[filtered_df["프로젝트명"].isin(filter_project)]
 if filter_item: filtered_df = filtered_df[filtered_df["구분"].isin(filter_item)]
@@ -356,7 +428,7 @@ if st.button("💾 변경사항 저장하기", type="primary"):
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
         conn.update(worksheet="Sheet1", data=final_save_df)
-        st.cache_data.clear() # 저장 후 캐시 삭제
+        st.cache_data.clear()
         
         st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
         time.sleep(1)
