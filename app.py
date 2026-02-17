@@ -257,7 +257,7 @@ if filter_activity:
 # 7. 버튼 그룹 (다운로드, 토글, 인쇄)
 # -----------------------------------------------------------------------------
 # 버튼 3개를 나란히 배치하기 위한 컬럼 비율 설정
-col_down, col_toggle, col_print, col_blank = st.columns([0.2, 0.2, 0.15, 0.45])
+col_down, col_toggle, col_print, = st.columns(3)
 
 with col_down:
     # 엑셀 다운로드
