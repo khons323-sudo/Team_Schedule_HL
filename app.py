@@ -286,4 +286,209 @@ with st.expander("➕ 새 일정 등록하기"):
             return selected
 
         with c1:
-            final_name = input_or_selec
+            final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
+            final_item = input_or_select("2. 구분", items_list, "item")
+        with c2:
+            final_member = input_or_select("3. 담당자", members_list, "memb")
+            final_act = input_or_select("4. Activity", activity_list, "act")
+        with c3:
+            p_start = st.date_input("5. 시작일", datetime.today())
+            p_end = st.date_input("6. 종료일", datetime.today())
+            st.markdown("<br>", unsafe_allow_html=True)
+            submit_btn = st.form_submit_button("저장", type="primary", use_container_width=True)
+        
+        if submit_btn:
+            if not final_name:
+                st.error("프로젝트명을 입력해주세요.")
+            else:
+                new_row = pd.DataFrame([{
+                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
+                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
+                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
+                }])
+                
+                # 세션 데이터 업데이트 (빠른 반영)
+                st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
+                # 구글 시트 저장 (백그라운드 처리 느낌으로)
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                # 원본 시트에 저장 시 날짜 포맷 주의
+                save_data = st.session_state['data'].copy()
+                if "_original_id" in save_data.columns:
+                    save_data = save_data.drop(columns=["_original_id"])
+                
+                # 저장용 포맷 변환
+                save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
+                save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
+                
+                conn.update(worksheet="Sheet1", data=save_data)
+                st.success("추가되었습니다!")
+                time.sleep(0.5)
+                st.rerun()
+
+# -----------------------------------------------------------------------------
+# 6. [컨트롤 패널] (한 줄 통합)
+# -----------------------------------------------------------------------------
+st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+
+# 컬럼 비율 조정
+# [제목: 0.22] [새로고침: 0.05] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.25] [팝오버: 0.05]
+c_title, c_refresh, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.08, 0.17, 0.15, 0.25, 0.05])
+
+with c_title:
+    st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
+
+with c_refresh:
+    # [New] 수동 새로고침 버튼 (다른 사람이 수정한 내용 불러오기)
+    if st.button("🔄", help="서버 데이터 새로고침"):
+        del st.session_state['data'] # 캐시 삭제
+        st.rerun()
+
+with c_label:
+    st.markdown('<div class="sort-label no-print">정렬</div>', unsafe_allow_html=True)
+
+with c_box:
+    sort_col = st.selectbox("정렬", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"], label_visibility="collapsed")
+
+with c_sort:
+    sort_asc = st.toggle("오름차순 정렬", value=True)
+
+with c_show:
+    show_completed = st.toggle("완료된 업무 보기", value=st.session_state['show_completed'])
+    if show_completed != st.session_state['show_completed']:
+        st.session_state['show_completed'] = show_completed
+        st.rerun()
+
+with c_add:
+    # ➕ 버튼 (팝오버 - 간단 입력용)
+    with st.popover("➕", use_container_width=True, help="간편 추가"):
+        st.write("간편 추가")
+        with st.form("quick_add_form"):
+            q_name = st.text_input("프로젝트명")
+            q_member = st.text_input("담당자")
+            q_start = st.date_input("시작", datetime.today())
+            q_end = st.date_input("종료", datetime.today())
+            if st.form_submit_button("저장"):
+                if not q_name:
+                    st.error("프로젝트명 필수")
+                else:
+                    new_row = pd.DataFrame([{
+                        "프로젝트명": q_name, "구분": "직접입력", "담당자": q_member,
+                        "Activity": "직접입력", "시작일": q_start.strftime("%Y-%m-%d"),
+                        "종료일": q_end.strftime("%Y-%m-%d"), "진행률": 0
+                    }])
+                    # 세션 업데이트
+                    st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
+                    
+                    # 시트 저장
+                    save_data = st.session_state['data'].copy()
+                    if "_original_id" in save_data.columns:
+                        save_data = save_data.drop(columns=["_original_id"])
+                    save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
+                    save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
+                    
+                    conn = st.connection("gsheets", type=GSheetsConnection)
+                    conn.update(worksheet="Sheet1", data=save_data)
+                    st.rerun()
+
+# -----------------------------------------------------------------------------
+# 7. 데이터 에디터 및 저장
+# -----------------------------------------------------------------------------
+# 정렬 적용
+filtered_df = base_data.copy()
+filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
+
+st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요. (브라우저 인쇄: Ctrl+P)</div>', unsafe_allow_html=True)
+
+display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
+final_display_cols = [c for c in display_cols if c in filtered_df.columns]
+
+dynamic_height = (len(filtered_df) + 1) * 35 + 3
+
+edited_df = st.data_editor(
+    filtered_df,
+    height=dynamic_height,
+    use_container_width=True,
+    num_rows="dynamic",
+    column_config={
+        "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
+        "구분": st.column_config.SelectboxColumn("구분", options=items_list),
+        "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
+        "Activity": st.column_config.SelectboxColumn("Activity", options=activity_list),
+        "진행률": st.column_config.NumberColumn("진행률", min_value=0, max_value=100, step=5, format="%d"),
+        "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
+        "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
+        "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
+        "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
+    },
+    column_order=final_display_cols,
+    hide_index=True,
+    key="data_editor"
+)
+
+# -----------------------------------------------------------------------------
+# 8. 저장 버튼 (최적화된 저장 로직)
+# -----------------------------------------------------------------------------
+if st.button("💾 변경사항 저장하기", type="primary"):
+    try:
+        # 1. 화면에서 수정된 데이터 가져오기
+        # 에디터는 필터링된 데이터만 보여주므로, 전체 데이터와 병합해야 함
+        
+        # 현재 에디터에 있는 데이터 (수정된 내용 포함)
+        edited_part = edited_df.copy()
+        
+        # 원본 데이터 (세션에 있는 전체 데이터)
+        original_full_data = st.session_state['data'].copy()
+        
+        # _original_id를 기준으로 병합 (업데이트)
+        # edited_part에 있는 행들은 original_full_data에서 교체
+        
+        # 인덱스 설정
+        if "_original_id" in edited_part.columns:
+            edited_part.set_index("_original_id", inplace=True)
+        if "_original_id" in original_full_data.columns:
+            original_full_data.set_index("_original_id", inplace=True)
+            
+        # 업데이트 (combine_first나 update 사용)
+        original_full_data.update(edited_part)
+        
+        # 새로 추가된 행 처리 (인덱스가 없는 경우)
+        # data_editor에서 행을 추가하면 새로운 인덱스가 생김. 
+        # 복잡함을 피하기 위해, 그냥 현재 화면 데이터 + 숨겨진 데이터를 합치는 방식 사용
+        
+        visible_ids = edited_df["_original_id"].dropna().tolist()
+        hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
+        
+        # 필수 컬럼만 남기기
+        save_part_df = edited_df[required_cols]
+        hidden_part_df = hidden_data[required_cols]
+        
+        final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
+        
+        # 날짜 포맷 통일
+        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
+
+        # 구글 시트에 업로드
+        conn = st.connection("gsheets", type=GSheetsConnection)
+        conn.update(worksheet="Sheet1", data=final_save_df)
+        
+        # [핵심] 세션 상태 즉시 업데이트 (리로드 방지)
+        # 저장된 데이터를 다시 세션에 반영하여 화면 갱신 속도 향상
+        # 단, _original_id 등을 다시 만들어야 하므로 가볍게 처리
+        
+        # 메모리 상의 데이터도 업데이트
+        updated_data = final_save_df.copy()
+        updated_data["시작일"] = pd.to_datetime(updated_data["시작일"], errors='coerce')
+        updated_data["종료일"] = pd.to_datetime(updated_data["종료일"], errors='coerce')
+        updated_data["_original_id"] = updated_data.index
+        updated_data["진행상황"] = updated_data["진행률"]
+        
+        st.session_state['data'] = updated_data
+        
+        st.toast("저장되었습니다!", icon="✅")
+        time.sleep(0.5)
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"저장 중 오류 발생: {e}")
