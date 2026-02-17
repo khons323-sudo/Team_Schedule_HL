@@ -6,9 +6,10 @@ from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
 import textwrap 
+import holidays # [New] 공휴일 계산 라이브러리
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS (인쇄 문제 해결)
+# 1. 페이지 설정 및 인쇄용 CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
@@ -32,8 +33,7 @@ div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     /* 2. 배경 및 글자색 강제 설정 (흰 종이에 검은 글씨) */
     body, .stApp {
         background-color: white !important;
-        -webkit-print-color-adjust: exact !important; /* 크롬/엣지 강제 컬러 출력 */
-        print-color-adjust: exact !important;
+        -webkit-print-color-adjust: exact !important;
     }
     
     * {
@@ -217,16 +217,12 @@ if not chart_data.empty:
         title=""
     )
     
-    # [수정] 날짜 라벨 생성 로직 (Wide Range 전략)
-    # 드래그해도 날짜가 보이게 하려면, 화면에 보이는 2주치만 만드는 게 아니라
-    # 전체 데이터 기간 + 앞뒤 여유분(3개월)까지 미리 만들어야 합니다.
-    
-    # 1. 전체 데이터의 최소/최대 날짜 확인
+    # -----------------------------------------------------------
+    # 날짜 라벨 생성 (Wide Range)
+    # -----------------------------------------------------------
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     
-    # 2. 라벨 생성 범위 설정 (데이터 범위 + 앞뒤 90일 여유)
-    # 데이터가 없으면 오늘 기준으로 설정
     if pd.isnull(min_dt): min_dt = today
     if pd.isnull(max_dt): max_dt = today
     
@@ -237,7 +233,6 @@ if not chart_data.empty:
     tick_text = []
     korean_days = ["월", "화", "수", "목", "금", "토", "일"]
     
-    # 3. 전체 범위에 대해 날짜 라벨 생성
     curr = label_start
     while curr <= label_end:
         tick_vals.append(curr)
@@ -245,7 +240,7 @@ if not chart_data.empty:
         tick_text.append(label)
         curr += timedelta(days=1)
 
-    # 4. 초기 화면에 보여줄 2주 범위 설정
+    # 초기 화면 2주 범위
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
 
@@ -267,15 +262,14 @@ if not chart_data.empty:
             xanchor="left",
             x=1.01
         ),
-        # [중요] 초기 줌 범위만 2주로 설정 (데이터는 전체 다 있음)
         xaxis=dict(range=[view_start, view_end])
     )
     
     fig.update_xaxes(
         side="top",
         tickmode="array", 
-        tickvals=tick_vals, # 전체 범위 날짜 값
-        ticktext=tick_text, # 전체 범위 날짜 텍스트
+        tickvals=tick_vals,
+        ticktext=tick_text,
         tickfont=dict(color="white", size=10),
         showgrid=True,
         gridcolor='rgba(255, 255, 255, 0.1)', 
@@ -293,19 +287,36 @@ if not chart_data.empty:
         layer="below traces"
     )
 
-    # 주말 및 주간 구분선 (전체 범위에 대해 그림)
+    # -----------------------------------------------------------
+    # [수정] 주말 및 공휴일 그리기
+    # -----------------------------------------------------------
+    # 한국 공휴일 객체 생성
+    kr_holidays = holidays.KR()
+
     if pd.notnull(label_start) and pd.notnull(label_end):
         c_date = label_start
         while c_date <= label_end:
-            if c_date.weekday() == 5: # 토요일
+            # 주말(5,6) 또는 공휴일이면 회색 배경
+            # c_date.date()로 날짜만 비교해야 holidays 라이브러리 인식 가능
+            is_weekend = c_date.weekday() in [5, 6]
+            is_holiday = c_date.date() in kr_holidays
+            
+            if is_weekend or is_holiday:
                 fig.add_vrect(
-                    x0=c_date, x1=c_date + timedelta(days=2),
-                    fillcolor="rgba(100, 100, 100, 0.3)", layer="below", line_width=0
+                    x0=c_date, 
+                    x1=c_date + timedelta(days=1), # 1일 단위로 칠함 (겹쳐도 상관없음)
+                    fillcolor="rgba(100, 100, 100, 0.3)", 
+                    layer="below", 
+                    line_width=0
                 )
-            if c_date.weekday() == 0: # 월요일
+            
+            # 월요일 굵은 선 (주간 구분선)
+            if c_date.weekday() == 0:
                 fig.add_vline(
                     x=c_date.timestamp() * 1000, 
-                    line_width=2, line_dash="solid", line_color="rgba(200, 200, 200, 0.6)"
+                    line_width=2, 
+                    line_dash="solid",
+                    line_color="rgba(200, 200, 200, 0.6)"
                 )
             c_date += timedelta(days=1)
 
