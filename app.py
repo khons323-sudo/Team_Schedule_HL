@@ -22,7 +22,7 @@ custom_css = """
         margin: 0 !important;
         padding: 0 !important;
         line-height: 1.5;
-        color: rgb(49, 51, 63); /* 화면에서는 기본색 */
+        color: rgb(49, 51, 63);
     }
     
     /* 상단 여백 최소화 */
@@ -52,71 +52,29 @@ custom_css = """
     
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 1. 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
         .no-print, 
-        .sort-area, .stSelectbox, .stCheckbox 
-        { 
-            display: none !important; 
-        }
+        .sort-area, .stSelectbox, .stCheckbox,
+        div[data-testid="stPopover"]
+        { display: none !important; }
 
-        /* 2. 배경 흰색 강제 (검은 배경 방지) */
         body, .stApp { 
             background-color: white !important; 
             -webkit-print-color-adjust: exact !important;
-            color: black !important;
             zoom: 75%; 
         }
+        * { color: black !important; text-shadow: none !important; }
 
-        /* 3. 타이틀만 80% 투명도 검은색 */
-        .title-text {
-            color: rgba(0, 0, 0, 0.8) !important;
-            -webkit-print-color-adjust: exact !important;
-        }
+        .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; width: 100% !important; overflow: visible !important; display: block !important; }
 
-        /* 4. 나머지 모든 글자는 검은색 */
-        * { 
-            text-shadow: none !important; 
-        }
-        
-        div[data-testid="stDataEditor"] * {
-            color: black !important;
-        }
+        div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; margin-bottom: 20px !important; width: 100% !important; }
+        div[data-testid="stDataEditor"] table { font-size: 11px !important; border: 1px solid #000 !important; width: 100% !important; }
 
-        /* 5. 메인 콘텐츠 확장 */
-        .main .block-container { 
-            max-width: 100% !important; 
-            width: 100% !important; 
-            padding: 0 !important; 
-            margin: 0 !important; 
-        }
-        html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { 
-            height: auto !important; 
-            width: 100% !important;
-            overflow: visible !important; 
-            display: block !important; 
-        }
-
-        /* 6. 차트 및 표 설정 */
-        div[data-testid="stDataEditor"], .stPlotlyChart { 
-            break-inside: avoid !important; 
-            margin-bottom: 20px !important; 
-            width: 100% !important; 
-        }
-        div[data-testid="stDataEditor"] table { 
-            font-size: 11px !important; 
-            border: 1px solid #000 !important; 
-            width: 100% !important;
-        }
-
-        /* 7. 페이지 설정 */
-        @page { 
-            size: portrait; 
-            margin: 1cm; 
-        }
+        @page { size: portrait; margin: 1cm; }
     }
 </style>
 """
@@ -125,48 +83,58 @@ st.markdown(custom_css, unsafe_allow_html=True)
 # 메인 타이틀
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
+# -----------------------------------------------------------------------------
+# 2. 데이터 로드 및 세션 상태 관리 (속도 최적화의 핵심)
+# -----------------------------------------------------------------------------
 # 세션 상태 초기화
 if 'show_completed' not in st.session_state:
     st.session_state['show_completed'] = False
 
-# -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 캐싱
-# -----------------------------------------------------------------------------
-@st.cache_data(ttl=3600)
-def load_data():
+# 구글 시트에서 데이터를 불러와서 전처리하는 함수
+def fetch_data_from_sheets():
     conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(worksheet="Sheet1")
+    df = conn.read(worksheet="Sheet1", ttl=0) # ttl=0: 즉시 갱신
     return df
 
-try:
-    data = load_data()
-except Exception as e:
-    st.error(f"⚠️ 데이터 연결 실패. 인터넷 상태를 확인하세요.\n에러: {e}")
-    st.stop()
+# [최적화] 세션 스테이트에 데이터가 없으면 로드, 있으면 기존 데이터 사용
+if 'data' not in st.session_state:
+    try:
+        with st.spinner("데이터를 불러오는 중..."):
+            raw_data = fetch_data_from_sheets()
+            
+            # 전처리 과정 (여기서 한 번만 수행)
+            required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
+            if raw_data.empty:
+                for col in required_cols:
+                    raw_data[col] = ""
+                raw_data["진행률"] = 0
+            
+            raw_data["시작일"] = pd.to_datetime(raw_data["시작일"], errors='coerce')
+            raw_data["종료일"] = pd.to_datetime(raw_data["종료일"], errors='coerce')
+            
+            if "진행률" in raw_data.columns and raw_data["진행률"].dtype == 'object':
+                raw_data["진행률"] = raw_data["진행률"].astype(str).str.replace('%', '')
+            raw_data["진행률"] = pd.to_numeric(raw_data["진행률"], errors='coerce').fillna(0).astype(int)
+            
+            # 고유 ID 생성 (인덱스 보존)
+            raw_data["_original_id"] = raw_data.index
+            
+            # 세션에 저장
+            st.session_state['data'] = raw_data
+            
+    except Exception as e:
+        st.error(f"⚠️ 데이터 연결 실패. 인터넷 상태를 확인하세요.\n에러: {e}")
+        st.stop()
 
-# -----------------------------------------------------------------------------
-# 3. 데이터 전처리
-# -----------------------------------------------------------------------------
-required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
+# 이제부터는 st.session_state['data']를 사용하여 작업 (매우 빠름)
+data = st.session_state['data'].copy()
 
-if data.empty:
-    for col in required_cols:
-        data[col] = ""
-    data["진행률"] = 0
-
-data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
-data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
+# 남은기간 계산 (매번 갱신)
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
-
-if "진행률" in data.columns and data["진행률"].dtype == 'object':
-    data["진행률"] = data["진행률"].astype(str).str.replace('%', '')
-data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
-
 data["진행상황"] = data["진행률"]
-data["_original_id"] = data.index
 
-# 리스트 추출
+# 리스트 추출 함수
 def get_unique_list(df, col_name):
     if col_name in df.columns:
         return sorted(df[col_name].astype(str).dropna().unique().tolist())
@@ -184,20 +152,18 @@ def wrap_labels(text, width=10):
 # -----------------------------------------------------------------------------
 # 4. [시각화 섹션] 간트차트
 # -----------------------------------------------------------------------------
-# 필터링 (토글 상태에 따라)
 if st.session_state['show_completed']:
-    base_data = data.copy()
+    chart_base_data = data.copy()
 else:
-    base_data = data[data["진행률"] < 100].copy()
+    chart_base_data = data[data["진행률"] < 100].copy()
 
-chart_data = base_data.dropna(subset=["시작일", "종료일"]).copy()
+chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
     chart_data["프로젝트명_줄바꿈"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x))
     
     custom_colors = px.colors.qualitative.Pastel 
 
-    # 1. 기본 바 차트
     fig = px.timeline(
         chart_data, 
         x_start="시작일", x_end="종료일", 
@@ -209,7 +175,7 @@ if not chart_data.empty:
         title=""
     )
     
-    # 2. 바 끝에 담당자 이름 표시
+    # 바 끝에 담당자 이름 표시
     fig.add_trace(go.Scatter(
         x=chart_data["종료일"], 
         y=chart_data["프로젝트명_줄바꿈"],
@@ -220,7 +186,7 @@ if not chart_data.empty:
         showlegend=False
     ))
     
-    # 날짜 라벨 (Wide Range)
+    # 날짜 라벨
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
@@ -274,13 +240,11 @@ if not chart_data.empty:
     fig.update_yaxes(
         fixedrange=True, autorange="reversed", showticklabels=True,
         tickfont=dict(size=12),
-        # [수정] 프로젝트 구분선 삭제 (False)
-        showgrid=False, 
+        showgrid=False, # 구분선 삭제
         gridwidth=1,
         layer="below traces"
     )
 
-    # 공휴일 및 주말
     fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
 
     if pd.notnull(label_start) and pd.notnull(label_end):
@@ -294,7 +258,7 @@ if not chart_data.empty:
                 fig.add_vline(x=c_date.timestamp() * 1000, line_width=2, line_dash="solid", line_color="rgba(128, 128, 128, 0.3)")
             c_date += timedelta(days=1)
             
-    # [수정] 오늘 날짜 빨간색 굵은 파선 표시
+    # 오늘 날짜 (빨간 파선)
     fig.add_vline(
         x=datetime.today().timestamp() * 1000, 
         line_width=8, 
@@ -307,7 +271,7 @@ else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션] (차트 밑으로 이동됨)
+# 5. [입력 섹션] (차트 밑으로 이동)
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -322,118 +286,4 @@ with st.expander("➕ 새 일정 등록하기"):
             return selected
 
         with c1:
-            final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
-            final_item = input_or_select("2. 구분", items_list, "item")
-        with c2:
-            final_member = input_or_select("3. 담당자", members_list, "memb")
-            final_act = input_or_select("4. Activity", activity_list, "act")
-        with c3:
-            p_start = st.date_input("5. 시작일", datetime.today())
-            p_end = st.date_input("6. 종료일", datetime.today())
-            st.markdown("<br>", unsafe_allow_html=True)
-            submit_btn = st.form_submit_button("저장", type="primary", use_container_width=True)
-        
-        if submit_btn:
-            if not final_name:
-                st.error("프로젝트명을 입력해주세요.")
-            else:
-                new_row = pd.DataFrame([{
-                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
-                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
-                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
-                }])
-                save_data = data[required_cols].copy()
-                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
-                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
-                final_df = pd.concat([save_data, new_row], ignore_index=True)
-                
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                conn.update(worksheet="Sheet1", data=final_df)
-                load_data.clear()
-                st.rerun()
-
-# -----------------------------------------------------------------------------
-# 6. [컨트롤 패널] (한 줄 통합)
-# -----------------------------------------------------------------------------
-st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
-
-# 컬럼 비율 조정
-c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
-
-with c_title:
-    st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
-
-with c_label:
-    st.markdown('<div class="sort-label no-print">정렬</div>', unsafe_allow_html=True)
-
-with c_box:
-    sort_col = st.selectbox("정렬", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"], label_visibility="collapsed")
-
-with c_sort:
-    sort_asc = st.toggle("오름차순 정렬", value=True)
-
-with c_show:
-    show_completed = st.toggle("완료된 업무 보기", value=st.session_state['show_completed'])
-    if show_completed != st.session_state['show_completed']:
-        st.session_state['show_completed'] = show_completed
-        st.rerun()
-
-with c_add:
-    # ➕ 버튼 (팝오버)
-    with st.popover("➕", use_container_width=True, help="새 일정 등록"):
-        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.") 
-        # (기능은 위 expander로 옮겼으므로 안내 메시지 혹은 중복 배치 선택 가능)
-        # 디자인 통일성을 위해 버튼만 남겨두거나 삭제 가능. 여기선 버튼 유지하되 expander 안내.
-
-# -----------------------------------------------------------------------------
-# 7. 데이터 에디터 및 저장
-# -----------------------------------------------------------------------------
-filtered_df = base_data.copy()
-filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
-
-st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요. (브라우저 인쇄: Ctrl+P)</div>', unsafe_allow_html=True)
-
-display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
-final_display_cols = [c for c in display_cols if c in filtered_df.columns]
-
-dynamic_height = (len(filtered_df) + 1) * 35 + 3
-
-edited_df = st.data_editor(
-    filtered_df,
-    height=dynamic_height,
-    use_container_width=True,
-    num_rows="dynamic",
-    column_config={
-        "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
-        "구분": st.column_config.SelectboxColumn("구분", options=items_list),
-        "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
-        "Activity": st.column_config.SelectboxColumn("Activity", options=activity_list),
-        "진행률": st.column_config.NumberColumn("진행률", min_value=0, max_value=100, step=5, format="%d"),
-        "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
-        "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
-        "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
-        "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
-    },
-    column_order=final_display_cols,
-    hide_index=True,
-    key="data_editor"
-)
-
-if st.button("💾 변경사항 저장하기", type="primary"):
-    try:
-        save_part_df = edited_df[required_cols + ["_original_id"]]
-        visible_ids = edited_df["_original_id"].dropna().tolist()
-        hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
-        save_part_df = save_part_df[required_cols]
-        hidden_part_df = hidden_data[required_cols]
-        final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
-        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
-        conn.update(worksheet="Sheet1", data=final_save_df)
-        load_data.clear()
-        st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
-        time.sleep(1)
-        st.rerun()
-    except Exception as e:
-        st.error(f"저장 중 오류 발생: {e}")
+            final_name = input_or_selec
