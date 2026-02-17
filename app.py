@@ -4,11 +4,10 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
-import streamlit.components.v1 as components
 import textwrap 
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄용 CSS
+# 1. 페이지 설정 및 인쇄용 CSS (세로 방향 적용)
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
@@ -20,20 +19,57 @@ div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
 
 /* 인쇄 모드 스타일 */
 @media print {
-    header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
+    /* 1. 불필요한 UI 숨기기 */
+    header, footer, aside, 
+    [data-testid="stSidebar"], [data-testid="stToolbar"], 
     .stButton, .stDownloadButton, .stExpander, .stForm, 
-    div[data-testid="stVerticalBlockBorderWrapper"], button { display: none !important; }
+    div[data-testid="stVerticalBlockBorderWrapper"],
+    button {
+        display: none !important;
+    }
 
-    body, .stApp { background-color: white !important; -webkit-print-color-adjust: exact !important; }
-    * { color: black !important; text-shadow: none !important; }
+    /* 2. 배경 및 글자색 강제 설정 */
+    body, .stApp {
+        background-color: white !important;
+        -webkit-print-color-adjust: exact !important;
+    }
+    
+    * {
+        color: black !important;
+        text-shadow: none !important;
+    }
 
-    .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
-    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; overflow: visible !important; display: block !important; }
+    /* 3. 메인 콘텐츠 확장 */
+    .main .block-container {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 0 !important;
+        margin: 0 !important;
+    }
 
-    div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; page-break-inside: avoid !important; margin-bottom: 20px !important; }
-    div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; }
+    html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+        height: auto !important;
+        overflow: visible !important;
+        display: block !important;
+    }
 
-    @page { size: landscape; margin: 0.5cm; }
+    /* 4. 차트 및 표가 잘리지 않도록 설정 */
+    div[data-testid="stDataEditor"], .stPlotlyChart {
+        break-inside: avoid !important;
+        page-break-inside: avoid !important;
+        margin-bottom: 20px !important;
+    }
+
+    div[data-testid="stDataEditor"] table {
+        font-size: 10px !important;
+        border: 1px solid #000 !important;
+    }
+
+    /* 5. [수정됨] 페이지 설정: 세로(portrait) 방향 기본 */
+    @page {
+        size: portrait; 
+        margin: 1cm;
+    }
 }
 </style>
 """
@@ -145,7 +181,6 @@ with st.expander("➕ 새 일정 등록하기"):
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
                 final_df = pd.concat([save_data, new_row], ignore_index=True)
                 
-                # 업로드 및 캐시 삭제
                 conn = st.connection("gsheets", type=GSheetsConnection)
                 conn.update(worksheet="Sheet1", data=final_df)
                 load_data.clear()
@@ -179,17 +214,14 @@ if not chart_data.empty:
         title=""
     )
     
-    # -----------------------------------------------------------
-    # 날짜 라벨 생성 (Wide Range)
-    # -----------------------------------------------------------
+    # 날짜 라벨 (Wide Range)
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
     if pd.isnull(max_dt): max_dt = today
     
-    # 앞뒤 60일 계산
-    label_start = min_dt - timedelta(days=60)
-    label_end = max_dt + timedelta(days=60)
+    label_start = min_dt - timedelta(days=90)
+    label_end = max_dt + timedelta(days=90)
     
     tick_vals = []
     tick_text = []
@@ -230,7 +262,7 @@ if not chart_data.empty:
         layer="below traces"
     )
 
-    # 공휴일 (2024~2027) - 한국 주요 공휴일
+    # 공휴일 (2024~2027)
     fixed_holidays = [
         "2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25",
         "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25",
@@ -243,14 +275,11 @@ if not chart_data.empty:
             is_weekend = c_date.weekday() in [5, 6]
             is_holiday = c_date.strftime("%Y-%m-%d") in fixed_holidays
             
-            # 주말/공휴일 회색 배경
             if is_weekend or is_holiday:
                 fig.add_vrect(
                     x0=c_date, x1=c_date + timedelta(days=1),
                     fillcolor="rgba(100, 100, 100, 0.3)", layer="below", line_width=0
                 )
-            
-            # 1주 단위 구분선 (월요일)
             if c_date.weekday() == 0:
                 fig.add_vline(
                     x=c_date.timestamp() * 1000, 
@@ -258,13 +287,8 @@ if not chart_data.empty:
                 )
             c_date += timedelta(days=1)
 
-    # [New] 오늘 날짜 표시 (붉은색 파선, 굵게, 투명도 50%)
-    fig.add_vline(
-        x=today.timestamp() * 1000,
-        line_width=4,
-        line_dash="dash",
-        line_color="rgba(255, 0, 0, 0.5)"
-    )
+    # 오늘 날짜선
+    fig.add_vline(x=today.timestamp() * 1000, line_width=4, line_dash="dash", line_color="rgba(255, 0, 0, 0.5)")
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
@@ -290,20 +314,25 @@ if filter_member: filtered_df = filtered_df[filtered_df["담당자"].isin(filter
 if filter_activity: filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
 
 # -----------------------------------------------------------------------------
-# 7. 정렬 기능
+# 7. [정렬 기능] - 한 줄 배치
 # -----------------------------------------------------------------------------
-col_sort1, col_sort2, col_dummy = st.columns([0.2, 0.2, 0.6])
-with col_sort1:
+# [수정] 정렬기준 선택박스와 정렬방법 토글을 한 줄에 배치
+c_sort1, c_sort2, c_blank = st.columns([1, 1, 2]) # 비율 조정
+
+with c_sort1:
     sort_col = st.selectbox("🗂️ 정렬 기준", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"])
-with col_sort2:
+
+with c_sort2:
+    # 토글 버튼의 높이를 맞추기 위해 상단 여백 추가
+    st.markdown("<br>", unsafe_allow_html=True)
     sort_asc = st.toggle("오름차순 정렬", value=True)
 
 filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
 
 # -----------------------------------------------------------------------------
-# 8. 버튼 그룹 (1/3 등분)
+# 8. 버튼 그룹 (1/3 등분 - 인쇄 버튼 삭제)
 # -----------------------------------------------------------------------------
-col_down, col_toggle, col_print = st.columns(3)
+col_down, col_toggle, col_dummy = st.columns([1, 1, 2])
 
 with col_down:
     download_cols = required_cols + ["남은기간"]
@@ -316,10 +345,6 @@ with col_toggle:
     if st.button(btn_text, use_container_width=True):
         st.session_state.show_completed = not st.session_state.show_completed
         st.rerun()
-
-with col_print:
-    if st.button("🖨️ 인쇄", use_container_width=True):
-        components.html("<script>window.print()</script>", height=0, width=0)
 
 # -----------------------------------------------------------------------------
 # 9. 데이터 에디터
