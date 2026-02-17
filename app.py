@@ -27,10 +27,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    .block-container {
+   / .block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }
+    }/
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -71,7 +71,7 @@ custom_css = """
             display: none !important; 
         }
 
-        /* 2. 배경 흰색, 글자 완전 검은색 강제 */
+        /* 2. 배경 흰색, 글자 검은색 강제 */
         body, .stApp { 
             background-color: white !important; 
             color: black !important;
@@ -81,45 +81,54 @@ custom_css = """
         
         * { 
             text-shadow: none !important; 
-            color: #000000 !important; /* 검은색 100% */
         }
 
-        /* 3. 메인 콘텐츠 확장 */
+        /* 3. 콘텐츠 영역 100% 확장 */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
             padding: 0 !important; 
             margin: 0 !important; 
         }
+        
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { 
             height: auto !important; 
             width: 100% !important;
             overflow: visible !important; 
             display: block !important; 
+            position: static !important;
         }
 
-        /* 4. 차트 높이 제한 (요청사항: 최대 500) */
-        .js-plotly-plot, .plot-container {
-            max-height: 500px !important;
-            margin-bottom: 20px !important;
+        /* 4. 차트 및 표 설정 */
+        div[data-testid="stDataEditor"], .js-plotly-plot { 
+            break-inside: avoid !important; 
+            margin-bottom: 20px !important; 
+            width: 100% !important; 
         }
         
-        /* 5. 데이터 표 스타일 */
         div[data-testid="stDataEditor"] table { 
             font-size: 10px !important; 
             border: 1px solid #000 !important; 
             width: 100% !important;
+            color: black !important;
         }
+        
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important;
             color: black !important;
             border-bottom: 2px solid black !important;
         }
+        
+        div[data-testid="stDataEditor"] td {
+            background-color: white !important;
+            color: black !important;
+            border-bottom: 1px solid #ddd !important;
+        }
 
-        /* 6. 페이지 설정 */
+        /* 5. 페이지 설정 */
         @page { 
             size: portrait; 
-            margin: 1cm; 
+            margin: 0.5cm; 
         }
     }
 </style>
@@ -186,7 +195,7 @@ def wrap_labels(text, width=15):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화 섹션] 테이블형 간트차트 (5열 구조)
+# 4. [시각화 섹션] 테이블형 간트차트
 # -----------------------------------------------------------------------------
 if st.session_state['show_completed']:
     chart_base_data = data.copy()
@@ -199,7 +208,7 @@ if not chart_data.empty:
     chart_data["프로젝트명_표시"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x, 12))
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
     
-    # 정렬 (날짜순)
+    # 정렬
     chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
     
     # 색상 매핑
@@ -207,13 +216,13 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # make_subplots (5개 열)
+    # [수정] 5개 컬럼 레이아웃 (간격 조정)
+    # horizontal_spacing=0.015로 늘려서 Activity와 Bar 사이 간격 확보
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
-        horizontal_spacing=0.005, 
+        horizontal_spacing=0.015, 
         column_widths=[0.12, 0.06, 0.06, 0.06, 0.70], 
-        # [수정] 제목(헤더)에 Bold 태그 추가
         subplot_titles=("<b>프로젝트명</b>", "<b>구분</b>", "<b>담당자</b>", "<b>Activity</b>", ""),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
@@ -221,42 +230,28 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
 
-    # [수정] 모든 텍스트 컬럼 중앙 정렬 (middle center) + 검은색 + 사이즈 10
-    common_text_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=10), hoverinfo="skip")
+    # [공통 속성]
+    common_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=10), hoverinfo="skip")
 
     # Col 1: 프로젝트명
-    fig.add_trace(go.Scatter(
-        x=[0.5] * num_rows, y=y_axis,
-        text=chart_data["프로젝트명_표시"],
-        **common_text_props
-    ), row=1, col=1)
-
+    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=1)
     # Col 2: 구분
-    fig.add_trace(go.Scatter(
-        x=[0.5] * num_rows, y=y_axis,
-        text=chart_data["구분"],
-        **common_text_props
-    ), row=1, col=2)
-
+    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["구분"], **common_props), row=1, col=2)
     # Col 3: 담당자
-    fig.add_trace(go.Scatter(
-        x=[0.5] * num_rows, y=y_axis,
-        text=chart_data["담당자"],
-        **common_text_props
-    ), row=1, col=3)
-
+    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["담당자"], **common_props), row=1, col=3)
     # Col 4: Activity
-    fig.add_trace(go.Scatter(
-        x=[0.5] * num_rows, y=y_axis,
-        text=chart_data["Activity_표시"],
-        **common_text_props
-    ), row=1, col=4)
+    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=chart_data["Activity_표시"], textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=4)
 
     # Col 5: Bar Chart
     for idx, row in chart_data.iterrows():
         start_ms = row["시작일"].timestamp() * 1000
         end_ms = row["종료일"].timestamp() * 1000
         duration = end_ms - start_ms
+        
+        # [수정] Bar 내부에 '기간/진행률' 표시
+        # 기간 계산 (종료일 포함)
+        day_diff = (row["종료일"] - row["시작일"]).days + 1
+        bar_text = f"{day_diff}일 / {row['진행률']}%"
         
         fig.add_trace(go.Bar(
             base=[start_ms], x=[duration], y=[idx],
@@ -265,23 +260,43 @@ if not chart_data.empty:
             opacity=0.8,
             hoverinfo="text",
             hovertext=f"{row['프로젝트명']}<br>{row['시작일'].strftime('%Y-%m-%d')} ~ {row['종료일'].strftime('%Y-%m-%d')}",
+            text=bar_text, # [수정] 텍스트 추가
+            textposition='inside', # [수정] 바 내부 중앙
+            insidetextanchor='middle',
+            textfont=dict(color='black', size=10), # 바 내부 글씨 스타일
             showlegend=False
         ), row=1, col=5)
         
-        # 바 끝에 담당자 이름
-        fig.add_trace(go.Scatter(
-            x=[row["종료일"]], y=[idx],
-            text=f"  {row['담당자']}",
-            mode="text", textposition="middle right",
-            textfont=dict(color="black", size=8), # [수정] 검은색
-            showlegend=False, hoverinfo="skip"
-        ), row=1, col=5)
+        # 담당자 이름(바 끝)은 삭제함 (요청사항 반영)
 
     # 날짜 범위 (2주)
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
     
-    # 텍스트 컬럼들(1~4) 축 설정 (숨김)
+    # [수정] 날짜 라벨 생성 (요일 추가)
+    min_dt = chart_data["시작일"].min()
+    max_dt = chart_data["종료일"].max()
+    if pd.isnull(min_dt): min_dt = today
+    if pd.isnull(max_dt): max_dt = today
+    
+    # 넉넉하게 앞뒤 3개월 생성
+    label_start = min_dt - timedelta(days=90)
+    label_end = max_dt + timedelta(days=90)
+    
+    tick_vals = []
+    tick_text = []
+    korean_days = ["월", "화", "수", "목", "금", "토", "일"]
+    
+    if pd.notnull(label_start) and pd.notnull(label_end):
+        curr = label_start
+        while curr <= label_end:
+            tick_vals.append(curr)
+            # 형식: 월<br>일<br>(요일)
+            label = f"{curr.month}월<br>{curr.day}일<br>({korean_days[curr.weekday()]})"
+            tick_text.append(label)
+            curr += timedelta(days=1)
+
+    # 축 설정 (텍스트 컬럼들 숨김)
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
@@ -289,11 +304,15 @@ if not chart_data.empty:
     # 차트 컬럼(5) 축 설정
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
+        tickmode="array", tickvals=tick_vals, ticktext=tick_text,
         tickfont=dict(size=10, color="black"),
         gridcolor='rgba(0,0,0,0.1)', row=1, col=5
     )
+    # [수정] Y축 고정 (세로 줌/팬 방지)
     fig.update_yaxes(
-        showticklabels=False, showgrid=False, row=1, col=5
+        showticklabels=False, showgrid=False, 
+        fixedrange=True, # 세로 이동 잠금
+        row=1, col=5
     )
 
     # 오늘 날짜 (빨간 파선)
@@ -303,7 +322,7 @@ if not chart_data.empty:
         row=1, col=5
     )
 
-    # 가로 구분선
+    # 테이블 가로 구분선
     shapes = []
     for i in range(num_rows + 1):
         shapes.append(dict(
@@ -311,27 +330,23 @@ if not chart_data.empty:
             line=dict(color="rgba(0,0,0,0.1)", width=1)
         ))
     
-    # [수정] 차트 높이 계산 (행 높이 25px 보장)
-    row_height = 25
-    header_height = 50
-    calculated_height = num_rows * row_height + header_height
-    # 인쇄 시 최대 500 제한은 CSS가 처리, 화면에서는 계산된 높이 사용 (단, 너무 작으면 300)
-    chart_height = max(300, calculated_height)
+    chart_height = max(500, num_rows * 40 + 50)
     
     fig.update_layout(
         height=chart_height,
-        margin=dict(l=10, r=10, t=30, b=10),
+        # [수정] 상단 여백 확보 (날짜와 툴바 겹침 방지)
+        margin=dict(l=10, r=10, t=80, b=10),
         paper_bgcolor='white', plot_bgcolor='white',
         showlegend=False, 
         shapes=shapes, 
-        dragmode="pan",
-        # [수정] 헤더(타이틀) 폰트 설정 (15px Bold)
-        font=dict(color="black") # 기본 폰트 검정
+        dragmode="pan", # 기본 드래그 모드
+        # 차트 내부 타이틀 삭제됨 (요청사항)
     )
     
-    # 서브플롯 타이틀(헤더) 폰트 개별 적용
+    # 서브플롯 타이틀 폰트
     fig.update_annotations(font=dict(size=15, color="black"))
 
+    # [수정] config에서 scrollZoom 끔
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 
 else:
@@ -395,7 +410,8 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
+# 컬럼 비율: [제목] [라벨] [선택박스] [정렬토글] [완료토글] [간편추가(팝오버)]
+c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.33, 0.05])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -416,6 +432,7 @@ with c_show:
         st.rerun()
 
 with c_add:
+    # 팝오버 버튼 (➕)
     with st.popover("➕", use_container_width=True, help="간편 추가"):
         st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
@@ -473,21 +490,10 @@ if st.button("💾 변경사항 저장하기", type="primary"):
                 save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
                 save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
                 
-                # 전역 conn 사용
                 conn.update(worksheet="Sheet1", data=save_df)
                 
-                # 재로딩
                 raw_data = conn.read(worksheet="Sheet1", ttl=0)
-                
-                # 전처리
-                raw_data["시작일"] = pd.to_datetime(raw_data["시작일"], errors='coerce')
-                raw_data["종료일"] = pd.to_datetime(raw_data["종료일"], errors='coerce')
-                if "진행률" in raw_data.columns:
-                    raw_data["진행률"] = raw_data["진행률"].astype(str).str.replace('%', '')
-                    raw_data["진행률"] = pd.to_numeric(raw_data["진행률"], errors='coerce').fillna(0).astype(int)
-                raw_data["_original_id"] = raw_data.index
-                
-                st.session_state['data'] = raw_data
+                st.session_state['data'] = process_data(raw_data)
                 
                 st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
                 time.sleep(0.5)
