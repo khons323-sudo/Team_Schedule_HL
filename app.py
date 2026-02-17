@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
@@ -50,9 +51,15 @@ custom_css = """
     div[data-testid="stCheckbox"] { margin-top: 8px; }
     div[data-testid="stCheckbox"] label { font-size: 14px !important; }
     
+    /* 팝오버 버튼(➕) 스타일 */
+    div[data-testid="stPopover"] button {
+        margin-top: 8px;
+        font-weight: bold;
+    }
+
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 숨길 요소들 */
+        /* 1. 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -64,18 +71,20 @@ custom_css = """
             display: none !important; 
         }
 
-        /* 배경 및 글자색 강제 설정 */
+        /* 2. 배경 흰색, 글자 완전 검은색 강제 */
         body, .stApp { 
             background-color: white !important; 
+            color: black !important;
             -webkit-print-color-adjust: exact !important;
-            zoom: 75%; 
+            print-color-adjust: exact !important;
         }
+        
         * { 
-            color: black !important; 
             text-shadow: none !important; 
+            color: #000000 !important; /* 검은색 100% */
         }
 
-        /* 메인 콘텐츠 확장 */
+        /* 3. 메인 콘텐츠 확장 */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
@@ -89,18 +98,25 @@ custom_css = """
             display: block !important; 
         }
 
-        /* 차트 및 표 설정 */
-        div[data-testid="stDataEditor"], .stPlotlyChart { 
-            break-inside: avoid !important; 
-            margin-bottom: 20px !important; 
-            width: 100% !important; 
+        /* 4. 차트 높이 제한 (요청사항: 최대 500) */
+        .js-plotly-plot, .plot-container {
+            max-height: 500px !important;
+            margin-bottom: 20px !important;
         }
+        
+        /* 5. 데이터 표 스타일 */
         div[data-testid="stDataEditor"] table { 
-            font-size: 11px !important; 
+            font-size: 10px !important; 
             border: 1px solid #000 !important; 
             width: 100% !important;
         }
+        div[data-testid="stDataEditor"] th {
+            background-color: #cccccc !important;
+            color: black !important;
+            border-bottom: 2px solid black !important;
+        }
 
+        /* 6. 페이지 설정 */
         @page { 
             size: portrait; 
             margin: 1cm; 
@@ -170,7 +186,7 @@ def wrap_labels(text, width=15):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화 섹션] 테이블형 간트차트
+# 4. [시각화 섹션] 테이블형 간트차트 (5열 구조)
 # -----------------------------------------------------------------------------
 if st.session_state['show_completed']:
     chart_base_data = data.copy()
@@ -191,53 +207,49 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    from plotly.subplots import make_subplots
-    
-    # 5개 컬럼 레이아웃
-    specs = [[{"type": "domain"}, {"type": "domain"}, {"type": "domain"}, {"type": "domain"}, {"type": "xy"}]]
-    
+    # make_subplots (5개 열)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
         column_widths=[0.12, 0.06, 0.06, 0.06, 0.70], 
-        subplot_titles=("프로젝트명", "구분", "담당자", "Activity", "일정"),
-        specs=specs
+        # [수정] 제목(헤더)에 Bold 태그 추가
+        subplot_titles=("<b>프로젝트명</b>", "<b>구분</b>", "<b>담당자</b>", "<b>Activity</b>", ""),
+        specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
 
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
 
+    # [수정] 모든 텍스트 컬럼 중앙 정렬 (middle center) + 검은색 + 사이즈 10
+    common_text_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=10), hoverinfo="skip")
+
     # Col 1: 프로젝트명
     fig.add_trace(go.Scatter(
-        x=[0] * num_rows, y=y_axis,
+        x=[0.5] * num_rows, y=y_axis,
         text=chart_data["프로젝트명_표시"],
-        mode="text", textposition="middle right",
-        textfont=dict(color="#333333", size=11), hoverinfo="skip"
+        **common_text_props
     ), row=1, col=1)
 
     # Col 2: 구분
     fig.add_trace(go.Scatter(
         x=[0.5] * num_rows, y=y_axis,
         text=chart_data["구분"],
-        mode="text", textposition="middle center",
-        textfont=dict(color="#333333", size=11), hoverinfo="skip"
+        **common_text_props
     ), row=1, col=2)
 
     # Col 3: 담당자
     fig.add_trace(go.Scatter(
         x=[0.5] * num_rows, y=y_axis,
         text=chart_data["담당자"],
-        mode="text", textposition="middle center",
-        textfont=dict(color="#333333", size=11), hoverinfo="skip"
+        **common_text_props
     ), row=1, col=3)
 
     # Col 4: Activity
     fig.add_trace(go.Scatter(
-        x=[0] * num_rows, y=y_axis,
+        x=[0.5] * num_rows, y=y_axis,
         text=chart_data["Activity_표시"],
-        mode="text", textposition="middle right",
-        textfont=dict(color="#333333", size=11), hoverinfo="skip"
+        **common_text_props
     ), row=1, col=4)
 
     # Col 5: Bar Chart
@@ -261,7 +273,7 @@ if not chart_data.empty:
             x=[row["종료일"]], y=[idx],
             text=f"  {row['담당자']}",
             mode="text", textposition="middle right",
-            textfont=dict(color="#333333", size=8),
+            textfont=dict(color="black", size=8), # [수정] 검은색
             showlegend=False, hoverinfo="skip"
         ), row=1, col=5)
 
@@ -269,15 +281,15 @@ if not chart_data.empty:
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
     
-    # 텍스트 컬럼들 축 설정
+    # 텍스트 컬럼들(1~4) 축 설정 (숨김)
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
 
-    # 차트 컬럼 축 설정
+    # 차트 컬럼(5) 축 설정
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
-        tickfont=dict(size=10, color="#333333"),
+        tickfont=dict(size=10, color="black"),
         gridcolor='rgba(0,0,0,0.1)', row=1, col=5
     )
     fig.update_yaxes(
@@ -291,7 +303,7 @@ if not chart_data.empty:
         row=1, col=5
     )
 
-    # 테이블 가로 구분선
+    # 가로 구분선
     shapes = []
     for i in range(num_rows + 1):
         shapes.append(dict(
@@ -299,7 +311,12 @@ if not chart_data.empty:
             line=dict(color="rgba(0,0,0,0.1)", width=1)
         ))
     
-    chart_height = max(500, num_rows * 40 + 50) # 최소 높이 500
+    # [수정] 차트 높이 계산 (행 높이 25px 보장)
+    row_height = 25
+    header_height = 50
+    calculated_height = num_rows * row_height + header_height
+    # 인쇄 시 최대 500 제한은 CSS가 처리, 화면에서는 계산된 높이 사용 (단, 너무 작으면 300)
+    chart_height = max(300, calculated_height)
     
     fig.update_layout(
         height=chart_height,
@@ -308,15 +325,12 @@ if not chart_data.empty:
         showlegend=False, 
         shapes=shapes, 
         dragmode="pan",
-        title={
-            'text': "Project Schedule",
-            'y': 0.99,
-            'x': 0.3,
-            'xanchor': 'left',
-            'yanchor': 'top',
-            'font': dict(size=15, color="#333333")
-        }
+        # [수정] 헤더(타이틀) 폰트 설정 (15px Bold)
+        font=dict(color="black") # 기본 폰트 검정
     )
+    
+    # 서브플롯 타이틀(헤더) 폰트 개별 적용
+    fig.update_annotations(font=dict(size=15, color="black"))
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 
@@ -360,7 +374,6 @@ with st.expander("➕ 새 일정 등록하기"):
                     "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
                 }])
                 
-                # 세션에 즉시 반영
                 st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
                 
                 try:
@@ -382,9 +395,7 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# [수정] 버튼 삭제 및 컬럼 비율 재조정
-# [제목: 0.22] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.38]
-c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
+c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -403,6 +414,10 @@ with c_show:
     if show_completed != st.session_state['show_completed']:
         st.session_state['show_completed'] = show_completed
         st.rerun()
+
+with c_add:
+    with st.popover("➕", use_container_width=True, help="간편 추가"):
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
