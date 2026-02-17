@@ -16,9 +16,9 @@ custom_css = """
 <style>
     /* 1. 메인 타이틀 크기 조정 (기존 대비 70% 축소) */
     .title-text {
-        font-size: 1.5rem !important; /* 크기 축소 */
+        font-size: 1.5rem !important;
         font-weight: 700;
-        margin-top: -1rem !important; /* 위쪽 여백 제거 */
+        margin-top: -1rem !important;
         margin-bottom: 0.5rem !important;
         padding-bottom: 0px !important;
     }
@@ -33,15 +33,15 @@ custom_css = """
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     
-    /* 정렬 컨트롤 라벨 수직 중앙 정렬 */
+    /* 정렬 컨트롤 라벨 스타일 */
     .sort-label {
         display: flex;
         align-items: center;
         height: 100%;
         font-weight: bold;
         font-size: 1rem;
-        padding-top: 15px; /* 셀렉트박스와 높이 맞춤 */
-        justify-content: flex-end; /* 우측 정렬 */
+        padding-top: 15px;
+        justify-content: flex-end;
     }
     
     /* 업무현황 서브헤더 스타일 */
@@ -53,42 +53,38 @@ custom_css = """
 
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 1. 인쇄 시 숨길 요소들 (버튼, 사이드바, 정렬컨트롤 등) */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print, /* 업무현황 텍스트 등 특정 클래스 숨김 */
-        .stSelectbox, .stCheckbox /* 선택박스, 토글 숨김 */
+        .no-print, .stSelectbox, .stCheckbox 
         { 
             display: none !important; 
         }
 
-        /* 2. 배경 및 글자색 강제 설정 (흰 종이에 검은 글씨) */
         body, .stApp { background-color: white !important; -webkit-print-color-adjust: exact !important; }
         * { color: black !important; text-shadow: none !important; }
 
-        /* 3. 메인 콘텐츠 확장 */
         .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; overflow: visible !important; display: block !important; }
 
-        /* 4. 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; margin-bottom: 10px !important; }
         div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; }
 
-        /* 5. 페이지 설정 */
         @page { size: landscape; margin: 5mm; }
     }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# [수정] 타이틀 (크기 70% 적용)
+# 타이틀
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 작업일정</div>', unsafe_allow_html=True)
 
-# 세션 상태 초기화
+# -----------------------------------------------------------------------------
+# [에러 해결 핵심] 세션 상태 초기화 (반드시 맨 위에 있어야 함)
+# -----------------------------------------------------------------------------
 if 'show_completed' not in st.session_state:
-    st.session_state.show_completed = False
+    st.session_state['show_completed'] = False
 
 # -----------------------------------------------------------------------------
 # 2. 데이터 로드 및 캐싱
@@ -187,7 +183,7 @@ with st.expander("➕ 새 일정 등록하기"):
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트 (높이 60%, 여백 최소화)
+# 5. [시각화 섹션] 간트차트
 # -----------------------------------------------------------------------------
 # 필터링
 if st.session_state.show_completed:
@@ -212,7 +208,7 @@ if not chart_data.empty:
         title=""
     )
     
-    # 날짜 라벨 (Wide Range)
+    # 날짜 라벨 생성 (Wide Range)
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
@@ -238,10 +234,9 @@ if not chart_data.empty:
     fig.update_layout(
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
-        height=300, # 높이 축소
+        height=300, 
         paper_bgcolor='rgb(40, 40, 40)', plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        # [수정] 상단 여백 최소화 (t=20) - 날짜와 타이틀 사이 간격 좁힘
         margin=dict(l=10, r=10, t=20, b=10),
         dragmode="pan", 
         legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
@@ -261,7 +256,7 @@ if not chart_data.empty:
         layer="below traces"
     )
 
-    # 공휴일(고정)
+    # 공휴일
     fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
 
     if pd.notnull(label_start) and pd.notnull(label_end):
@@ -280,26 +275,23 @@ else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 6. [간격 조정 및 컨트롤 섹션 (한 줄 배치)]
+# 6. [간격 및 컨트롤 섹션]
 # -----------------------------------------------------------------------------
-st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True) # 간격
+st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# [수정] 업무현황, 정렬라벨, 선택박스, 토글을 전체 폭으로 배분
+# 업무현황, 정렬라벨, 선택박스, 토글 배치
 c_title, c_sort_label, c_sort_box, c_sort_toggle = st.columns([0.25, 0.15, 0.3, 0.3])
 
 with c_title:
-    # 인쇄 시 숨기기 위해 클래스 추가
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
 
 with c_sort_label:
     st.markdown('<div class="sort-label no-print">🗂️ 정렬 기준 :</div>', unsafe_allow_html=True)
 
 with c_sort_box:
-    # 선택박스 (인쇄 시 CSS로 숨겨짐)
     sort_col = st.selectbox("정렬", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"], label_visibility="collapsed")
 
 with c_sort_toggle:
-    # 토글 (인쇄 시 CSS로 숨겨짐)
     sort_asc = st.toggle("오름차순 정렬", value=True)
 
 # 정렬 적용
@@ -322,18 +314,18 @@ with b2:
         st.rerun()
 with b3:
     if st.button("🖨️ 인쇄", use_container_width=True):
+        import streamlit.components.v1 as components
         components.html("<script>window.print()</script>", height=0, width=0)
 
 # -----------------------------------------------------------------------------
-# 8. 데이터 에디터 (모두 보이게 높이 자동 조절)
+# 8. 데이터 에디터
 # -----------------------------------------------------------------------------
-# 캡션은 인쇄 안 함
 st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요.</div>', unsafe_allow_html=True)
 
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
-# 높이 자동 계산 (스크롤 없이 모두 표시)
+# 높이 자동 계산
 dynamic_height = (len(filtered_df) + 1) * 35 + 3
 
 edited_df = st.data_editor(
