@@ -4,6 +4,7 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
+import streamlit.components.v1 as components
 import textwrap 
 
 # -----------------------------------------------------------------------------
@@ -45,9 +46,8 @@ if 'show_completed' not in st.session_state:
     st.session_state.show_completed = False
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 캐싱 (속도 최적화의 핵심)
+# 2. 데이터 로드 및 캐싱
 # -----------------------------------------------------------------------------
-# [최적화] ttl=3600 (1시간 캐시). 저장 버튼 누르기 전까진 메모리에서 즉시 로드
 @st.cache_data(ttl=3600)
 def load_data():
     conn = st.connection("gsheets", type=GSheetsConnection)
@@ -55,7 +55,6 @@ def load_data():
     return df
 
 try:
-    # 캐시된 데이터 불러오기
     data = load_data()
 except Exception as e:
     st.error(f"⚠️ 데이터 연결 실패. 잠시 후 다시 시도하세요.\n에러: {e}")
@@ -71,7 +70,7 @@ if data.empty:
         data[col] = ""
     data["진행률"] = 0
 
-# 날짜 변환 (Vectorized)
+# 날짜 변환
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 
@@ -88,7 +87,7 @@ data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).
 data["진행상황"] = data["진행률"]
 data["_original_id"] = data.index
 
-# 리스트 추출 (함수화)
+# 리스트 추출
 def get_unique_list(df, col_name):
     if col_name in df.columns:
         return sorted(df[col_name].astype(str).dropna().unique().tolist())
@@ -146,10 +145,10 @@ with st.expander("➕ 새 일정 등록하기"):
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
                 final_df = pd.concat([save_data, new_row], ignore_index=True)
                 
-                # 업로드 및 캐시 초기화
+                # 업로드 및 캐시 삭제
                 conn = st.connection("gsheets", type=GSheetsConnection)
                 conn.update(worksheet="Sheet1", data=final_df)
-                load_data.clear() # [중요] 캐시 비우기
+                load_data.clear()
                 st.rerun()
 
 # -----------------------------------------------------------------------------
@@ -181,22 +180,14 @@ if not chart_data.empty:
     )
     
     # -----------------------------------------------------------
-    # [최적화] 날짜 및 공휴일 계산 (라이브러리 없이 직접 지정)
+    # 날짜 라벨 생성 (Wide Range)
     # -----------------------------------------------------------
-    # 한국 주요 공휴일 (2024~2027) 하드코딩 - 속도 및 안정성 확보
-    fixed_holidays = [
-        "2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25",
-        "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25",
-        "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-03-01", "2026-05-05", "2026-05-24", "2026-06-06", "2026-08-15", "2026-09-24", "2026-09-25", "2026-09-26", "2026-10-03", "2026-10-09", "2026-12-25"
-    ]
-    
-    # 1. 날짜 라벨 생성 (Wide Range)
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
     if pd.isnull(max_dt): max_dt = today
     
-    # 앞뒤 60일만 계산 (너무 넓으면 느려짐)
+    # 앞뒤 60일 계산
     label_start = min_dt - timedelta(days=60)
     label_end = max_dt + timedelta(days=60)
     
@@ -211,7 +202,7 @@ if not chart_data.empty:
         tick_text.append(label)
         curr += timedelta(days=1)
 
-    # 2. 레이아웃 설정
+    # 초기 화면 2주
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
 
@@ -239,24 +230,41 @@ if not chart_data.empty:
         layer="below traces"
     )
 
-    # 3. 주말/공휴일 그리기 (최적화됨)
+    # 공휴일 (2024~2027) - 한국 주요 공휴일
+    fixed_holidays = [
+        "2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25",
+        "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25",
+        "2026-01-01", "2026-02-16", "2026-02-17", "2026-02-18", "2026-03-01", "2026-05-05", "2026-05-24", "2026-06-06", "2026-08-15", "2026-09-24", "2026-09-25", "2026-09-26", "2026-10-03", "2026-10-09", "2026-12-25"
+    ]
+
     if pd.notnull(label_start) and pd.notnull(label_end):
         c_date = label_start
         while c_date <= label_end:
             is_weekend = c_date.weekday() in [5, 6]
             is_holiday = c_date.strftime("%Y-%m-%d") in fixed_holidays
             
+            # 주말/공휴일 회색 배경
             if is_weekend or is_holiday:
                 fig.add_vrect(
                     x0=c_date, x1=c_date + timedelta(days=1),
                     fillcolor="rgba(100, 100, 100, 0.3)", layer="below", line_width=0
                 )
+            
+            # 1주 단위 구분선 (월요일)
             if c_date.weekday() == 0:
                 fig.add_vline(
                     x=c_date.timestamp() * 1000, 
                     line_width=2, line_dash="solid", line_color="rgba(200, 200, 200, 0.6)"
                 )
             c_date += timedelta(days=1)
+
+    # [New] 오늘 날짜 표시 (붉은색 파선, 굵게, 투명도 50%)
+    fig.add_vline(
+        x=today.timestamp() * 1000,
+        line_width=4,
+        line_dash="dash",
+        line_color="rgba(255, 0, 0, 0.5)"
+    )
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
@@ -293,12 +301,11 @@ with col_sort2:
 filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
 
 # -----------------------------------------------------------------------------
-# 8. 버튼 그룹
+# 8. 버튼 그룹 (1/3 등분)
 # -----------------------------------------------------------------------------
 col_down, col_toggle, col_print = st.columns(3)
 
 with col_down:
-    # 다운로드할 데이터 준비 (필터링된 결과 기준)
     download_cols = required_cols + ["남은기간"]
     final_down_cols = [c for c in download_cols if c in data.columns]
     csv = data[final_down_cols].to_csv(index=False).encode('utf-8-sig')
@@ -311,7 +318,6 @@ with col_toggle:
         st.rerun()
 
 with col_print:
-    import streamlit.components.v1 as components
     if st.button("🖨️ 인쇄", use_container_width=True):
         components.html("<script>window.print()</script>", height=0, width=0)
 
@@ -361,10 +367,8 @@ if st.button("💾 변경사항 저장하기", type="primary"):
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        # 업로드 및 캐시 초기화
-        conn = st.connection("gsheets", type=GSheetsConnection)
         conn.update(worksheet="Sheet1", data=final_save_df)
-        load_data.clear() # 저장 후 캐시 삭제 (즉시 반영)
+        load_data.clear()
         
         st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
         time.sleep(1)
