@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import plotly.graph_objects as go # [New] 텍스트 추가를 위해 필요
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
@@ -14,9 +15,9 @@ st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 # CSS: 화면 및 인쇄 스타일링
 custom_css = """
 <style>
-    /* 1. 메인 타이틀 & 서브헤더 스타일 (크기 통일) */
+    /* 1. 메인 타이틀 & 서브헤더 스타일 */
     .title-text, .subheader-text {
-        font-size: 1.3rem !important; /* 업무현황 크기와 동일하게 맞춤 */
+        font-size: 1.3rem !important;
         font-weight: 700;
         margin: 0 !important;
         padding: 0 !important;
@@ -25,45 +26,40 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    /.block-container {
+    .block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }/
+    }
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     
-    /* 2. 정렬 컨트롤 스타일 (글자 크기 통일 및 수직 정렬) */
+    /* 정렬 컨트롤 라벨 스타일 */
     .sort-label {
-        font-size: 14px; /* 스트림릿 위젯 기본 폰트사이즈와 통일 */
+        font-size: 14px;
         font-weight: 600;
         display: flex;
         align-items: center;
-        justify-content: flex-end; /* 우측 정렬 */
-        height: 40px; /* 셀렉트박스 높이와 유사하게 */
+        justify-content: flex-end;
+        height: 40px;
         padding-right: 10px;
     }
     
-    /* 선택박스, 토글 등 위젯 수직 정렬 보정 */
-    div[data-testid="stSelectbox"] {
-        margin-top: 2px;
-    }
-    div[data-testid="stCheckbox"] {
-        margin-top: 8px; /* 토글 버튼 위치 미세 조정 */
-    }
-    div[data-testid="stCheckbox"] label {
-        font-size: 14px !important;
-    }
+    div[data-testid="stSelectbox"] { margin-top: 2px; }
+    div[data-testid="stCheckbox"] { margin-top: 8px; }
+    div[data-testid="stCheckbox"] label { font-size: 14px !important; }
 
-    /* [중요] 인쇄 모드 스타일 (세로 방향, 한 페이지 맞춤) */
+    /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 1. 숨길 요소들 (버튼, 사이드바, 입력폼 등) */
+        /* 1. 숨길 요소들 (버튼, 사이드바, 입력폼, 정렬컨트롤 등) */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print
+        .no-print, 
+        /* [요청반영] 정렬 컨트롤(선택박스, 토글) 및 라벨 숨기기 */
+        .sort-area, .stSelectbox, .stCheckbox 
         { 
             display: none !important; 
         }
@@ -72,14 +68,14 @@ custom_css = """
         body, .stApp { 
             background-color: white !important; 
             -webkit-print-color-adjust: exact !important;
-            zoom: 75%; /* [핵심] 세로 용지에 맞게 전체 축소 */
+            zoom: 80%; /* 세로 출력 시 한 페이지에 더 많이 담기 위해 축소 */
         }
         * { 
             color: black !important; 
             text-shadow: none !important; 
         }
 
-        /* 3. 메인 콘텐츠 확장 */
+        /* 3. 메인 콘텐츠 확장 (용지 폭 100% 맞춤) */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
@@ -88,6 +84,7 @@ custom_css = """
         }
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { 
             height: auto !important; 
+            width: 100% !important;
             overflow: visible !important; 
             display: block !important; 
         }
@@ -96,27 +93,25 @@ custom_css = """
         div[data-testid="stDataEditor"], .stPlotlyChart { 
             break-inside: avoid !important; 
             margin-bottom: 20px !important; 
+            width: 100% !important; /* 표 폭 100% 강제 */
         }
         div[data-testid="stDataEditor"] table { 
             font-size: 11px !important; 
             border: 1px solid #000 !important; 
+            width: 100% !important;
         }
 
-        /* 5. 페이지 설정 (세로 방향) */
+        /* 5. 페이지 설정 (세로 방향, 여백 최소화) */
         @page { 
             size: portrait; 
-            margin: 1cm; 
+            margin: 0.5cm; 
         }
     }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-st.title("HL 디자인1본부 1팀 작업일정")
-
-# -----------------------------------------------------------------------------
-# [수정] 메인 타이틀 복구 (업무현황 크기와 동일)
-# -----------------------------------------------------------------------------
+# 메인 타이틀
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
 # 세션 상태 초기화
@@ -232,8 +227,12 @@ chart_data = base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
     chart_data["프로젝트명_줄바꿈"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x))
+    # [New] 이름 띄어쓰기용 컬럼 (진한 회색 표시용)
+    chart_data["담당자_라벨"] = "  " + chart_data["담당자"].astype(str)
+    
     custom_colors = px.colors.qualitative.Pastel 
 
+    # 1. 기본 바 차트
     fig = px.timeline(
         chart_data, 
         x_start="시작일", x_end="종료일", 
@@ -244,6 +243,17 @@ if not chart_data.empty:
         hover_data=["구분", "Activity", "진행률", "남은기간"],
         title=""
     )
+    
+    # 2. [요청반영] 바 끝에 담당자 이름 표시 (Scatter Trace 추가)
+    fig.add_trace(go.Scatter(
+        x=chart_data["종료일"], # 막대 끝 위치
+        y=chart_data["프로젝트명_줄바꿈"],
+        text=chart_data["담당자_라벨"], # 공백 포함된 이름
+        mode="text",
+        textposition="middle right", # 오른쪽 정렬
+        textfont=dict(color="rgb(50, 50, 50)", size=12, weight="bold"), # 진한 회색
+        showlegend=False # 범례에는 표시 안 함
+    ))
     
     # 날짜 라벨 (Wide Range)
     min_dt = chart_data["시작일"].min()
@@ -274,7 +284,7 @@ if not chart_data.empty:
         height=300, 
         paper_bgcolor='rgb(40, 40, 40)', plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=20, b=10),
+        margin=dict(l=10, r=50, t=20, b=10), # [수정] 오른쪽 여백(r=50) 확보 (글자 잘림 방지)
         dragmode="pan", 
         legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
         xaxis=dict(range=[view_start, view_end])
@@ -316,23 +326,21 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# [수정] 업무현황, 정렬 컨트롤 배치 (아이콘, 콜론 삭제 및 정렬 맞춤)
+# [수정] 업무현황, 정렬 컨트롤 배치 (인쇄 시 sort-area 클래스로 숨김)
+# CSS에서 .sort-area를 display: none 처리했으므로 div로 감싸줌
 c_title, c_sort_label, c_sort_box, c_sort_toggle = st.columns([0.25, 0.1, 0.3, 0.35])
 
 with c_title:
-    # 업무현황 타이틀
-    st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
+    st.markdown('<div class="subheader-text">📝 업무 현황</div>', unsafe_allow_html=True)
 
 with c_sort_label:
-    # 정렬기준 라벨 (아이콘 제거, 콜론 제거, 우측 정렬)
-    st.markdown('<div class="sort-label no-print">정렬 기준</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sort-label sort-area">정렬 기준</div>', unsafe_allow_html=True)
 
 with c_sort_box:
-    # 정렬 기준 선택
+    # 이 위젯들도 CSS로 숨김 처리됨
     sort_col = st.selectbox("정렬", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"], label_visibility="collapsed")
 
 with c_sort_toggle:
-    # 오름차순 토글
     sort_asc = st.toggle("오름차순 정렬", value=True)
 
 # 정렬 적용
@@ -342,8 +350,7 @@ filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
 # -----------------------------------------------------------------------------
 # 7. 버튼 그룹 (인쇄 버튼 삭제)
 # -----------------------------------------------------------------------------
-# [수정] 인쇄 버튼 삭제, 나머지 버튼 2개 등분 배치
-b1, b2, b3 = st.columns([0.3, 0.3, 0.4]) # 비율 조정
+b1, b2, b3 = st.columns([0.3, 0.3, 0.4])
 with b1:
     download_cols = required_cols + ["남은기간"]
     final_down_cols = [c for c in download_cols if c in data.columns]
@@ -354,12 +361,12 @@ with b2:
     if st.button(btn_text, use_container_width=True):
         st.session_state.show_completed = not st.session_state.show_completed
         st.rerun()
-# with b3: 인쇄 버튼 삭제됨
+# 인쇄 버튼 삭제됨
 
 # -----------------------------------------------------------------------------
 # 8. 데이터 에디터
 # -----------------------------------------------------------------------------
-st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요. (브라우저 인쇄 단축키: Ctrl+P)</div>', unsafe_allow_html=True)
+st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요. (브라우저 인쇄: Ctrl+P)</div>', unsafe_allow_html=True)
 
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
@@ -379,38 +386,4 @@ edited_df = st.data_editor(
         "진행률": st.column_config.NumberColumn("진행률", min_value=0, max_value=100, step=5, format="%d"),
         "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
         "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
-        "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
-        "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
-    },
-    column_order=final_display_cols,
-    hide_index=True,
-    key="data_editor"
-)
-
-# -----------------------------------------------------------------------------
-# 9. 저장 버튼
-# -----------------------------------------------------------------------------
-if st.button("💾 변경사항 저장하기", type="primary"):
-    try:
-        save_part_df = edited_df[required_cols + ["_original_id"]]
-        visible_ids = edited_df["_original_id"].dropna().tolist()
-        hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
-        
-        save_part_df = save_part_df[required_cols]
-        hidden_part_df = hidden_data[required_cols]
-        
-        final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
-        
-        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
-
-        conn.update(worksheet="Sheet1", data=final_save_df)
-        load_data.clear()
-        
-        st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
-        time.sleep(1)
-        st.rerun()
-        
-    except Exception as e:
-        st.error(f"저장 중 오류 발생: {e}")
+        "종료일": st.column_config.DateColumn("종료일", format="YYYY
