@@ -251,7 +251,7 @@ if not chart_data.empty:
         text=chart_data["담당자_라벨"], # 공백 포함된 이름
         mode="text",
         textposition="middle right", # 오른쪽 정렬
-        textfont=dict(color="rgb(50, 50, 50)", size=12, weight="bold"), # 진한 회색
+        textfont=dict(color="rgb(255, 255, 255)", size=8, weight="normal"), # 흰색
         showlegend=False # 범례에는 표시 안 함
     ))
     
