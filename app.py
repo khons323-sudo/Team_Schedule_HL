@@ -50,8 +50,9 @@ custom_css = """
     div[data-testid="stCheckbox"] { margin-top: 8px; }
     div[data-testid="stCheckbox"] label { font-size: 14px !important; }
     
-    /* 인쇄 모드 스타일 */
+    /* [중요] 인쇄 모드 스타일 */
     @media print {
+        /* 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -62,6 +63,7 @@ custom_css = """
             display: none !important; 
         }
 
+        /* 배경 및 글자색 강제 설정 (인쇄 시 가독성 확보) */
         body, .stApp { 
             background-color: white !important; 
             -webkit-print-color-adjust: exact !important;
@@ -165,8 +167,53 @@ def wrap_labels(text, width=10):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화 섹션] 간트차트
+# 4. [입력 섹션]
 # -----------------------------------------------------------------------------
+with st.expander("➕ 새 일정 등록하기"):
+    with st.form("add_task_form"):
+        c1, c2, c3 = st.columns(3)
+        def input_or_select(label, options, key):
+            extended_options = options + ["➕ 직접 입력"]
+            selected = st.selectbox(label, extended_options, key=f"{key}_sel")
+            if selected == "➕ 직접 입력":
+                return st.text_input(f"└ {label} 입력", key=f"{key}_txt")
+            return selected
+
+        with c1:
+            final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
+            final_item = input_or_select("2. 구분", items_list, "item")
+        with c2:
+            final_member = input_or_select("3. 담당자", members_list, "memb")
+            final_act = input_or_select("4. Activity", activity_list, "act")
+        with c3:
+            p_start = st.date_input("5. 시작일", datetime.today())
+            p_end = st.date_input("6. 종료일", datetime.today())
+            st.markdown("<br>", unsafe_allow_html=True)
+            submit_btn = st.form_submit_button("일정 추가", use_container_width=True)
+        
+        if submit_btn:
+            if not final_name:
+                st.error("프로젝트명을 입력해주세요.")
+            else:
+                new_row = pd.DataFrame([{
+                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
+                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
+                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
+                }])
+                save_data = data[required_cols].copy()
+                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
+                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
+                final_df = pd.concat([save_data, new_row], ignore_index=True)
+                
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                conn.update(worksheet="Sheet1", data=final_df)
+                load_data.clear()
+                st.rerun()
+
+# -----------------------------------------------------------------------------
+# 5. [시각화 섹션] 간트차트
+# -----------------------------------------------------------------------------
+# 필터링 (토글 상태에 따라)
 if st.session_state['show_completed']:
     base_data = data.copy()
 else:
@@ -198,7 +245,7 @@ if not chart_data.empty:
         text="  " + chart_data["담당자"].astype(str), 
         mode="text",
         textposition="middle right", 
-        textfont=dict(color="#333333", size=8),
+        textfont=dict(size=8),
         showlegend=False
     ))
     
@@ -232,6 +279,7 @@ if not chart_data.empty:
         ),
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
+        # [수정] 높이 500으로 변경
         height=500, 
         paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)',
@@ -280,12 +328,12 @@ else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [컨트롤 패널 및 입력]
+# 6. 컨트롤 및 데이터 에디터 섹션 (한 줄 통합)
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# 컬럼 비율 조정
-c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
+# 컬럼 비율 조정: [제목] [라벨] [선택박스] [정렬토글] [완료토글] (버튼 삭제됨)
+c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -305,45 +353,8 @@ with c_show:
         st.session_state['show_completed'] = show_completed
         st.rerun()
 
-with c_add:
-    # [수정] popover 대신 구버전 호환 가능한 expander 사용 (에러 방지용)
-    # 아이콘처럼 작게 만들기 위해 + 기호만 사용
-    with st.expander("➕"):
-        with st.form("add_task_form_pop"):
-            def input_or_select_pop(label, options, key):
-                extended_options = options + ["➕ 직접 입력"]
-                selected = st.selectbox(label, extended_options, key=f"{key}_sel_pop")
-                if selected == "➕ 직접 입력":
-                    return st.text_input(f"└ {label} 입력", key=f"{key}_txt_pop")
-                return selected
-
-            final_name = input_or_select_pop("1. 프로젝트명", projects_list, "proj")
-            final_item = input_or_select_pop("2. 구분", items_list, "item")
-            final_member = input_or_select_pop("3. 담당자", members_list, "memb")
-            final_act = input_or_select_pop("4. Activity", activity_list, "act")
-            
-            p_start = st.date_input("5. 시작일", datetime.today())
-            p_end = st.date_input("6. 종료일", datetime.today())
-            
-            if st.form_submit_button("저장", type="primary"):
-                if not final_name:
-                    st.error("프로젝트명 필수")
-                else:
-                    new_row = pd.DataFrame([{
-                        "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
-                        "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
-                        "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
-                    }])
-                    save_data = data[required_cols].copy()
-                    save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
-                    save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
-                    final_df = pd.concat([save_data, new_row], ignore_index=True)
-                    conn.update(worksheet="Sheet1", data=final_df)
-                    load_data.clear()
-                    st.rerun()
-
 # -----------------------------------------------------------------------------
-# 6. 데이터 에디터 및 저장
+# 7. 데이터 에디터 및 저장
 # -----------------------------------------------------------------------------
 filtered_df = base_data.copy()
 filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
