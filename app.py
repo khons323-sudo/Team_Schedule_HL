@@ -26,7 +26,11 @@ custom_css = """
         color: rgb(49, 51, 63);
     }
     
-    /* 상단 여백 최소화 (삭제 요청 복구됨 - 기본값) */
+    /* 상단 여백 최소화 */
+    .block-container {
+        padding-top: 1rem !important;
+        padding-bottom: 2rem !important;
+    }
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -47,24 +51,40 @@ custom_css = """
     div[data-testid="stCheckbox"] { margin-top: 8px; }
     div[data-testid="stCheckbox"] label { font-size: 14px !important; }
     
+    /* 팝오버 버튼(➕) 스타일 */
+    div[data-testid="stPopover"] button {
+        margin-top: 8px;
+        font-weight: bold;
+    }
+
     /* [중요] 인쇄 모드 스타일 */
     @media print {
+        /* 1. 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print, .sort-area, .stSelectbox, .stCheckbox
-        { display: none !important; }
+        .no-print, 
+        .sort-area, .stSelectbox, .stCheckbox,
+        div[data-testid="stPopover"]
+        { 
+            display: none !important; 
+        }
 
+        /* 2. 배경 흰색, 글자 검은색 강제 (인쇄 가독성) */
         body, .stApp { 
             background-color: white !important; 
             color: black !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
-            zoom: 75%; 
         }
-        * { text-shadow: none !important; }
+        
+        * { 
+            text-shadow: none !important; 
+            color: black !important;
+        }
 
+        /* 3. 콘텐츠 영역 100% 확장 */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
@@ -80,19 +100,37 @@ custom_css = """
             position: static !important;
         }
 
-        /* 차트 및 표 설정 */
+        /* 4. 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .js-plotly-plot { 
             break-inside: avoid !important; 
             margin-bottom: 20px !important; 
             width: 100% !important; 
         }
         
-        /* 표 헤더/내용 스타일 */
-        div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; width: 100% !important; color: black !important; }
-        div[data-testid="stDataEditor"] th { background-color: #cccccc !important; color: black !important; border-bottom: 2px solid black !important; }
-        div[data-testid="stDataEditor"] td { background-color: white !important; color: black !important; border-bottom: 1px solid #ddd !important; }
+        /* 5. 데이터 표 스타일 (흰바탕 검은글씨) */
+        div[data-testid="stDataEditor"] table { 
+            font-size: 10px !important; 
+            border: 1px solid #000 !important; 
+            width: 100% !important;
+            color: black !important;
+            background-color: white !important;
+        }
+        div[data-testid="stDataEditor"] th {
+            background-color: #cccccc !important; /* 헤더 회색 */
+            color: black !important;
+            border-bottom: 2px solid black !important;
+        }
+        div[data-testid="stDataEditor"] td {
+            background-color: white !important;
+            color: black !important;
+            border-bottom: 1px solid #ddd !important;
+        }
 
-        @page { size: portrait; margin: 0.5cm; }
+        /* 6. 페이지 설정 */
+        @page { 
+            size: portrait; 
+            margin: 0.5cm; 
+        }
     }
 </style>
 """
@@ -136,7 +174,6 @@ def process_dataframe(df):
     
     return df
 
-# 데이터 초기화
 if 'data' not in st.session_state:
     try:
         raw_data = load_data_from_sheet()
@@ -146,8 +183,8 @@ if 'data' not in st.session_state:
         st.stop()
 
 data = st.session_state['data'].copy()
-data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
-data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
+
+# 실시간 계산
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 data["진행상황"] = data["진행률"]
@@ -178,19 +215,31 @@ else:
 chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
-    chart_data["프로젝트명_표시"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x, 12))
+    # 텍스트 줄바꿈
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
     
-    chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
+    # 1. 정렬: 프로젝트명 -> 시작일 순
+    chart_data = chart_data.sort_values(by=["프로젝트명", "시작일"], ascending=[True, False]).reset_index(drop=True)
     
+    # 2. [수정] 프로젝트명 병합 (중복 제거)
+    display_project_names = []
+    previous_name = None
+    for name in chart_data["프로젝트명"]:
+        if name == previous_name:
+            display_project_names.append("") # 중복되면 빈칸
+        else:
+            display_project_names.append(wrap_labels(name, 12)) # 새 프로젝트면 표시
+            previous_name = name
+
     unique_members = chart_data["담당자"].unique()
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
+    # [수정] horizontal_spacing=0.02 (Activity와 차트 사이 간격 10 정도 효과)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
-        horizontal_spacing=0.005, 
+        horizontal_spacing=0.02, 
         column_widths=[0.12, 0.06, 0.06, 0.06, 0.70], 
         subplot_titles=("<b>프로젝트명</b>", "<b>구분</b>", "<b>담당자</b>", "<b>Activity</b>", ""),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
@@ -199,17 +248,14 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
 
-    # [수정] 모든 텍스트 컬럼 중앙 정렬 (middle center)
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=10), hoverinfo="skip")
 
-    # Col 1: 프로젝트명 (middle center)
-    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
-    # Col 2: 구분
+    # Col 1: 프로젝트명 (병합된 이름 사용)
+    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=display_project_names, textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=1)
+    # Col 2~4
     fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["구분"], **common_props), row=1, col=2)
-    # Col 3: 담당자
     fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["담당자"], **common_props), row=1, col=3)
-    # Col 4: Activity (middle center)
-    fig.add_trace(go.Scatter(x=[0.5] * num_rows, y=y_axis, text=chart_data["Activity_표시"], **common_props), row=1, col=4)
+    fig.add_trace(go.Scatter(x=[0] * num_rows, y=y_axis, text=chart_data["Activity_표시"], textposition="middle right", mode="text", textfont=dict(color="black", size=11), hoverinfo="skip"), row=1, col=4)
 
     # Col 5: Bar Chart
     for idx, row in chart_data.iterrows():
@@ -217,6 +263,7 @@ if not chart_data.empty:
         end_ms = row["종료일"].timestamp() * 1000
         duration = end_ms - start_ms
         
+        # [수정] Bar 내부 텍스트: 기간/진행률
         day_diff = (row["종료일"] - row["시작일"]).days + 1
         bar_text = f"{day_diff}일 / {row['진행률']}%"
 
@@ -231,12 +278,33 @@ if not chart_data.empty:
             textfont=dict(color='black', size=10),
             showlegend=False
         ), row=1, col=5)
-        
-        # [수정] 담당자 이름 표기 삭제됨
 
+    # 날짜 범위 설정 (2주)
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
     
+    # [수정] 날짜 라벨 생성 (요일 포함)
+    min_dt = chart_data["시작일"].min()
+    max_dt = chart_data["종료일"].max()
+    if pd.isnull(min_dt): min_dt = today
+    if pd.isnull(max_dt): max_dt = today
+    
+    label_start = min_dt - timedelta(days=90)
+    label_end = max_dt + timedelta(days=90)
+    
+    tick_vals = []
+    tick_text = []
+    korean_days = ["(월)", "(화)", "(수)", "(목)", "(금)", "(토)", "(일)"]
+    
+    if pd.notnull(label_start) and pd.notnull(label_end):
+        curr = label_start
+        while curr <= label_end:
+            tick_vals.append(curr)
+            # 날짜<br>일<br>(요일)
+            label = f"{curr.month}월<br>{curr.day}<br>{korean_days[curr.weekday()]}"
+            tick_text.append(label)
+            curr += timedelta(days=1)
+
     # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
@@ -244,44 +312,57 @@ if not chart_data.empty:
 
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
+        tickmode="array", tickvals=tick_vals, ticktext=tick_text,
         tickfont=dict(size=10, color="black"),
         gridcolor='rgba(0,0,0,0.1)', row=1, col=5
     )
     fig.update_yaxes(
         showticklabels=False, showgrid=False, 
-        fixedrange=True, # 세로 줌 잠금
+        fixedrange=True, # 세로 고정
         row=1, col=5
     )
 
-    fig.add_vline(x=today.timestamp() * 1000, line_width=2, line_dash="dash", line_color="rgba(255, 0, 0, 0.6)", row=1, col=5)
+    # 오늘 날짜 (빨간 파선)
+    fig.add_vline(x=today.timestamp() * 1000, line_width=8, line_dash="dash", line_color="rgba(255, 0, 0, 0.6)", row=1, col=5)
+
+    # [수정] 휴일 회색 배경 (50%)
+    fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
+
+    if pd.notnull(label_start) and pd.notnull(label_end):
+        c_date = label_start
+        while c_date <= label_end:
+            is_weekend = c_date.weekday() in [5, 6]
+            is_holiday = c_date.strftime("%Y-%m-%d") in fixed_holidays
+            if is_weekend or is_holiday:
+                # [수정] 50% 회색 배경
+                fig.add_vrect(x0=c_date, x1=c_date + timedelta(days=1), fillcolor="rgba(128, 128, 128, 0.5)", layer="below", line_width=0)
+            if c_date.weekday() == 0:
+                fig.add_vline(x=c_date.timestamp() * 1000, line_width=2, line_dash="solid", line_color="rgba(128, 128, 128, 0.3)")
+            c_date += timedelta(days=1)
 
     shapes = []
     for i in range(num_rows + 1):
         shapes.append(dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(0,0,0,0.1)", width=1)))
     
-    # [수정] 높이 계산 (최대 510, 행 높이 30)
-    calculated_height = num_rows * 30 + 50
-    chart_height = min(510, max(300, calculated_height))
+    chart_height = max(500, num_rows * 40 + 50)
     
     fig.update_layout(
         height=chart_height,
-        margin=dict(l=10, r=10, t=30, b=10),
-        paper_bgcolor='white', plot_bgcolor='white',
-        showlegend=False, shapes=shapes, dragmode="pan",
-        title={
-            'text': "Project Schedule",
-            'y': 0.99, 'x': 0.3, 'xanchor': 'left', 'yanchor': 'top',
-            'font': dict(size=15, color="#333333")
-        }
+        # [수정] 상단 여백 90으로 증가 (날짜/툴바 겹침 방지)
+        margin=dict(l=10, r=10, t=90, b=10),
+        paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False, shapes=shapes, dragmode="pan"
     )
     
     fig.update_annotations(font=dict(size=15, color="black"))
+    
+    # 차트 출력
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션]
+# 5. [입력 섹션] (차트 밑)
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -339,9 +420,8 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# [수정] 간편 추가 버튼 삭제됨
-# [제목: 0.22] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.38]
-c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
+# 컬럼 비율 조정
+c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -360,6 +440,10 @@ with c_show:
     if show_completed != st.session_state['show_completed']:
         st.session_state['show_completed'] = show_completed
         st.rerun()
+
+with c_add:
+    with st.popover("➕", use_container_width=True, help="간편 추가"):
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
@@ -398,35 +482,23 @@ edited_df = st.data_editor(
     key="data_editor"
 )
 
-# [수정] 쿼터 초과 방지 및 데이터 무결성 확보 로직
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
         with st.spinner("저장 중..."):
-            edited_part = edited_df.copy()
-            full_data = st.session_state['data'].copy()
-            
-            if "_original_id" in full_data.columns and "_original_id" in edited_part.columns:
-                full_data.set_index("_original_id", inplace=True)
-                edited_part.set_index("_original_id", inplace=True)
-                full_data.update(edited_part)
-                full_data.reset_index(inplace=True)
-                
-                save_df = full_data.copy()
-                save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-                save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-                save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
-                
-                # 구글 시트에 업데이트
-                conn.update(worksheet="Sheet1", data=save_df)
-                
-                # 캐시 초기화 및 세션 갱신
-                load_data_from_sheet.clear()
-                st.session_state['data'] = process_dataframe(save_df)
-                
-                st.success("저장되었습니다.")
-                time.sleep(1) # [API 쿼터 방지] 너무 빠른 리프레시 방지
-                st.rerun()
-            else:
-                st.error("데이터 병합 오류: 고유 ID를 찾을 수 없습니다.")
+            save_df = edited_df.copy()
+
+            save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+            save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+            save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
+
+            conn.update(worksheet="Sheet1", data=save_df)
+
+            load_data_from_sheet.clear()
+            st.session_state['data'] = process_dataframe(save_df)
+
+            st.toast("저장되었습니다!", icon="✅")
+            time.sleep(0.5)
+            st.rerun()
+
     except Exception as e:
         st.error(f"저장 중 오류 발생: {e}")
