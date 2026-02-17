@@ -26,10 +26,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    .block-container {
+    /.block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }
+    }/
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
