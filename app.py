@@ -25,10 +25,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    .block-container {
+    /.block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }
+    }/
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -111,6 +111,8 @@ custom_css = """
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
+
+st.title("HL 디자인1본부 1팀 작업일정")
 
 # -----------------------------------------------------------------------------
 # [수정] 메인 타이틀 복구 (업무현황 크기와 동일)
