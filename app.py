@@ -2,52 +2,42 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
+import textwrap # 줄바꿈 처리를 위한 라이브러리
 
 # -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 인쇄 기능 주입 (새로 작성됨)
+# 1. 페이지 설정 및 인쇄용 CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# [New] 인쇄 전용 스타일 및 스크립트 정의
-# 이 CSS는 화면에서는 아무 변화가 없지만, '인쇄(Ctrl+P)'가 실행될 때만 작동합니다.
-st.markdown("""
-    <style>
-    @media print {
-        /* 1. 인쇄 시 숨길 요소들 (버튼, 사이드바, 입력창 등) */
-        [data-testid="stSidebar"], 
-        [data-testid="stToolbar"],
-        .stButton, 
-        .stDownloadButton, 
-        .stExpander, 
-        header, 
-        footer {
-            display: none !important;
-        }
-
-        /* 2. 콘텐츠 영역을 종이 너비에 꽉 차게 확장 */
-        .main .block-container {
-            max-width: 100% !important;
-            width: 100% !important;
-            padding: 1rem !important;
-            margin: 0 !important;
-        }
-
-        /* 3. 차트와 표의 배경색/글자색 강제 조정 (잉크 절약 및 가독성) */
-        body {
-            -webkit-print-color-adjust: exact; /* 배경색 출력 강제 */
-        }
-        
-        /* 4. 스크롤바 숨기기 및 전체 내용 표시 */
-        html, body {
-            height: auto !important;
-            overflow: visible !important;
-        }
+# 인쇄 시 적용될 CSS (표 폭 100%, 불필요한 요소 숨김)
+print_css = """
+<style>
+@media print {
+    header, footer, [data-testid="stSidebar"], [data-testid="stToolbar"], 
+    .stButton, .stDownloadButton, .stExpander, .stForm, div[data-testid="stVerticalBlockBorderWrapper"] {
+        display: none !important;
     }
-    </style>
-""", unsafe_allow_html=True)
+    .main .block-container {
+        max-width: 100% !important;
+        width: 100% !important;
+        padding: 10px !important;
+        margin: 0 !important;
+    }
+    div[data-testid="stDataEditor"] table {
+        width: 100% !important;
+        font-size: 10px !important;
+    }
+    @page {
+        size: landscape;
+        margin: 0.5cm;
+    }
+}
+</style>
+"""
+st.markdown(print_css, unsafe_allow_html=True)
 
 st.title("📅 디자인1본부 1팀 작업일정")
 
@@ -104,6 +94,11 @@ else:
 members_list = sorted(data["담당자"].astype(str).dropna().unique().tolist())
 activity_list = sorted(data["Activity"].astype(str).dropna().unique().tolist())
 
+# [New] 긴 프로젝트명 줄바꿈 함수 (20% 폭 고려하여 약 15~20자마자 줄바꿈)
+def wrap_labels(text, width=15):
+    if pd.isna(text): return ""
+    return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
+
 # -----------------------------------------------------------------------------
 # 4. [입력 섹션] 새 일정 등록
 # -----------------------------------------------------------------------------
@@ -141,11 +136,11 @@ with st.expander("➕ 새 일정 등록하기"):
             st.rerun()
 
 # -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트
+# 5. [시각화 섹션] 간트차트 (디자인 대폭 수정)
 # -----------------------------------------------------------------------------
 st.subheader("📊 전체 일정 (Gantt Chart)")
 
-# 1. 완료된 업무 필터링
+# 1. 필터링
 if st.session_state.show_completed:
     base_data = data.copy()
 else:
@@ -155,11 +150,16 @@ else:
 chart_data = base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
+    # [New] 프로젝트명 줄바꿈 적용 (Y축 라벨용 새로운 컬럼 생성)
+    chart_data["프로젝트명_줄바꿈"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x))
+
     custom_colors = px.colors.qualitative.Pastel 
 
+    # 차트 생성
     fig = px.timeline(
         chart_data, 
-        x_start="시작일", x_end="종료일", y="프로젝트명", 
+        x_start="시작일", x_end="종료일", 
+        y="프로젝트명_줄바꿈",  # 줄바꿈 적용된 컬럼 사용
         color="담당자",
         color_discrete_sequence=custom_colors,
         hover_name="프로젝트명",
@@ -167,59 +167,99 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # 차트 레이아웃
+    # 3. [디자인] 레이아웃 설정
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
         barmode='group', 
         bargap=0.2, 
-        height=400, 
+        height=500, # 줄바꿈으로 인해 높이 약간 확보
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        margin=dict(l=10, r=10, t=30, b=10),
+        margin=dict(l=10, r=10, t=60, b=10),
+        
+        # [설정] 드래그 모드: Pan(이동)만 허용, 줌은 버튼으로만
+        dragmode="pan", 
+        
+        # 범례 우측 배치
         legend=dict(
             orientation="v",
             yanchor="top",
             y=1,
             xanchor="left",
             x=1.01
+        ),
+        
+        # [설정] 초기 화면 3주 보이기 (오늘 -3일 ~ 오늘 +18일)
+        xaxis=dict(
+            range=[(today - timedelta(days=3)), (today + timedelta(days=18))]
         )
     )
     
+    # 4. [디자인] X축 (날짜) 그리드 및 주말/주간 설정
     fig.update_xaxes(
         showgrid=True,
-        gridcolor='rgba(255, 255, 255, 0.1)',
+        # 1일 단위 옅은 회색 파선
+        dtick=86400000.0, # 1 day in milliseconds
+        gridcolor='rgba(255, 255, 255, 0.1)', 
+        griddash='dot', 
         tickfont=dict(color="white"),
-        side="bottom" 
+        side="bottom"
     )
     
+    # [설정] Y축 고정 (세로 스크롤/줌 방지) 및 프로젝트 구분선
     fig.update_yaxes(
+        fixedrange=True, # 세로 방향 줌/이동 잠금
         autorange="reversed",
         showticklabels=True,
-        tickfont=dict(color="white", size=14),
+        tickfont=dict(color="white", size=13),
         showgrid=True,
-        gridcolor='rgba(255, 255, 255, 0.3)',
+        # [디자인] 프로젝트 사이 구분선: 밝은 회색 굵은 실선
+        gridcolor='rgba(200, 200, 200, 0.5)', 
         gridwidth=1,
         layer="below traces"
     )
 
-    # 분기별 구분선
-    min_date = chart_data["시작일"].min()
-    max_date = chart_data["종료일"].max()
+    # 5. [디자인] 주말(회색톤) 및 1주일 단위(굵은선) 그리기
+    # 데이터의 전체 범위 계산
+    min_date = chart_data["시작일"].min() - timedelta(days=7)
+    max_date = chart_data["종료일"].max() + timedelta(days=7)
     
     if pd.notnull(min_date) and pd.notnull(max_date):
-        for year in range(min_date.year, max_date.year + 2):
-            for month in [1, 4, 7, 10]: 
-                q_date = datetime(year, month, 1)
-                fig.add_vline(
-                    x=q_date.timestamp() * 1000, 
-                    line_width=1, 
-                    line_dash="solid",
-                    line_color="rgba(255, 255, 255, 0.6)"
+        # 전체 기간을 순회하며 주말/월요일 체크
+        curr_date = min_date
+        while curr_date <= max_date:
+            # 주말 (토, 일) 회색 배경
+            if curr_date.weekday() == 5: # 토요일
+                fig.add_vrect(
+                    x0=curr_date, 
+                    x1=curr_date + timedelta(days=2), # 월요일 0시 직전까지
+                    fillcolor="rgba(100, 100, 100, 0.3)", 
+                    layer="below", 
+                    line_width=0
                 )
+            
+            # 1주일 기준선 (매주 월요일) - 밝은 회색 굵은 선
+            if curr_date.weekday() == 0: # 월요일
+                fig.add_vline(
+                    x=curr_date.timestamp() * 1000, 
+                    line_width=2, 
+                    line_dash="solid",
+                    line_color="rgba(200, 200, 200, 0.6)"
+                )
+            
+            curr_date += timedelta(days=1)
 
-    st.plotly_chart(fig, use_container_width=True)
+    # 6. 차트 출력 (스크롤 줌 비활성화 옵션 적용)
+    st.plotly_chart(
+        fig, 
+        use_container_width=True,
+        config={
+            'scrollZoom': False, # [설정] 마우스 휠/핀치 줌 비활성화
+            'displayModeBar': True # 상단 툴바는 표시 (버튼으로 줌 가능)
+        }
+    )
 else:
     st.info("표시할 일정이 없습니다.")
 
@@ -227,7 +267,7 @@ else:
 # 6. [업무 현황 및 컨트롤 섹션]
 # -----------------------------------------------------------------------------
 st.divider()
-st.subheader("📝 디자인 1팀 업무 현황")
+st.subheader("📝 디자인 1본부 업무 현황")
 
 # 상세 필터링
 with st.expander("🔍 상세 필터링 (원하는 항목을 선택하세요)", expanded=False):
@@ -254,10 +294,9 @@ if filter_activity:
     filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
 
 # -----------------------------------------------------------------------------
-# 7. 버튼 그룹 (다운로드, 토글, 인쇄)
+# 7. 버튼 그룹
 # -----------------------------------------------------------------------------
-# 버튼 3개를 나란히 배치하기 위한 컬럼 비율 설정
-col_down, col_toggle, col_print, = st.columns(3)
+col_down, col_toggle, col_print = st.columns(3)
 
 with col_down:
     # 엑셀 다운로드
@@ -280,13 +319,9 @@ with col_toggle:
         st.rerun()
 
 with col_print:
-    # [New] 인쇄 버튼 (자바스크립트로 브라우저 인쇄 호출)
+    # 인쇄 버튼
     if st.button("🖨️ 인쇄", use_container_width=True):
-        components.html(
-            "<script>window.print();</script>",
-            height=0,
-            width=0
-        )
+        st.components.v1.html("<script>window.print()</script>", height=0, width=0)
 
 # -----------------------------------------------------------------------------
 # 8. 데이터 에디터
