@@ -5,14 +5,14 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
-import textwrap # 줄바꿈 처리를 위한 라이브러리
+import textwrap 
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 인쇄용 CSS
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 
-# 인쇄 시 적용될 CSS (표 폭 100%, 불필요한 요소 숨김)
+# 인쇄 시 적용될 CSS
 print_css = """
 <style>
 @media print {
@@ -94,7 +94,7 @@ else:
 members_list = sorted(data["담당자"].astype(str).dropna().unique().tolist())
 activity_list = sorted(data["Activity"].astype(str).dropna().unique().tolist())
 
-# [New] 긴 프로젝트명 줄바꿈 함수 (20% 폭 고려하여 약 15~20자마자 줄바꿈)
+# 긴 프로젝트명 줄바꿈 함수
 def wrap_labels(text, width=15):
     if pd.isna(text): return ""
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
@@ -136,7 +136,7 @@ with st.expander("➕ 새 일정 등록하기"):
             st.rerun()
 
 # -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트 (디자인 대폭 수정)
+# 5. [시각화 섹션] 간트차트
 # -----------------------------------------------------------------------------
 st.subheader("📊 전체 일정 (Gantt Chart)")
 
@@ -150,7 +150,7 @@ else:
 chart_data = base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
-    # [New] 프로젝트명 줄바꿈 적용 (Y축 라벨용 새로운 컬럼 생성)
+    # 프로젝트명 줄바꿈 적용
     chart_data["프로젝트명_줄바꿈"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x))
 
     custom_colors = px.colors.qualitative.Pastel 
@@ -159,7 +159,7 @@ if not chart_data.empty:
     fig = px.timeline(
         chart_data, 
         x_start="시작일", x_end="종료일", 
-        y="프로젝트명_줄바꿈",  # 줄바꿈 적용된 컬럼 사용
+        y="프로젝트명_줄바꿈",
         color="담당자",
         color_discrete_sequence=custom_colors,
         hover_name="프로젝트명",
@@ -167,22 +167,43 @@ if not chart_data.empty:
         title="프로젝트별 일정"
     )
     
-    # 3. [디자인] 레이아웃 설정
+    # -----------------------------------------------------------
+    # [수정] 날짜 라벨 생성 로직 (상단 표시용)
+    # -----------------------------------------------------------
+    # 보여줄 기간 설정 (오늘 기준 -3일 ~ +18일 = 총 3주)
+    view_start = today - timedelta(days=3)
+    view_end = today + timedelta(days=18)
+    
+    # 해당 기간의 날짜 리스트 생성
+    tick_vals = []
+    tick_text = []
+    
+    korean_days = ["월", "화", "수", "목", "금", "토", "일"]
+    
+    # 3주치 날짜를 하루씩 루프 돌며 라벨 생성
+    curr = view_start
+    while curr <= view_end:
+        tick_vals.append(curr)
+        # 형식: "2월<br>17<br>(월)"
+        # 글자가 겹치는 것을 방지하기 위해 HTML 줄바꿈 태그 <br> 사용
+        label = f"{curr.month}월<br>{curr.day}<br>({korean_days[curr.weekday()]})"
+        tick_text.append(label)
+        curr += timedelta(days=1)
+
+    # 3. 레이아웃 설정
     fig.update_layout(
         xaxis_title="", 
         yaxis_title="", 
         barmode='group', 
         bargap=0.2, 
-        height=500, # 줄바꿈으로 인해 높이 약간 확보
+        height=500,
         paper_bgcolor='rgb(40, 40, 40)',
         plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
         margin=dict(l=10, r=10, t=60, b=10),
         
-        # [설정] 드래그 모드: Pan(이동)만 허용, 줌은 버튼으로만
         dragmode="pan", 
         
-        # 범례 우측 배치
         legend=dict(
             orientation="v",
             yanchor="top",
@@ -191,73 +212,74 @@ if not chart_data.empty:
             x=1.01
         ),
         
-        # [설정] 초기 화면 3주 보이기 (오늘 -3일 ~ 오늘 +18일)
+        # X축 범위 고정
         xaxis=dict(
-            range=[(today - timedelta(days=3)), (today + timedelta(days=18))]
+            range=[view_start, view_end]
         )
     )
     
-    # 4. [디자인] X축 (날짜) 그리드 및 주말/주간 설정
+    # 4. X축 (날짜) 상세 설정 [수정됨]
     fig.update_xaxes(
+        side="top",       # [요청] 날짜를 차트 위로 이동
+        tickmode="array", # 사용자 지정 텍스트 사용
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        tickfont=dict(
+            color="white", 
+            size=10       # [요청] 겹침 방지를 위해 글자 크기 축소
+        ),
         showgrid=True,
-        # 1일 단위 옅은 회색 파선
-        dtick=86400000.0, # 1 day in milliseconds
         gridcolor='rgba(255, 255, 255, 0.1)', 
-        griddash='dot', 
-        tickfont=dict(color="white"),
-        side="bottom"
+        griddash='dot'
     )
     
-    # [설정] Y축 고정 (세로 스크롤/줌 방지) 및 프로젝트 구분선
+    # Y축 설정
     fig.update_yaxes(
-        fixedrange=True, # 세로 방향 줌/이동 잠금
+        fixedrange=True,
         autorange="reversed",
         showticklabels=True,
         tickfont=dict(color="white", size=13),
         showgrid=True,
-        # [디자인] 프로젝트 사이 구분선: 밝은 회색 굵은 실선
         gridcolor='rgba(200, 200, 200, 0.5)', 
         gridwidth=1,
         layer="below traces"
     )
 
-    # 5. [디자인] 주말(회색톤) 및 1주일 단위(굵은선) 그리기
-    # 데이터의 전체 범위 계산
-    min_date = chart_data["시작일"].min() - timedelta(days=7)
-    max_date = chart_data["종료일"].max() + timedelta(days=7)
+    # 5. 주말 및 1주일 단위 그리기
+    # 전체 데이터 범위 계산 (그리드 그리기용)
+    grid_start = chart_data["시작일"].min() - timedelta(days=7)
+    grid_end = chart_data["종료일"].max() + timedelta(days=7)
     
-    if pd.notnull(min_date) and pd.notnull(max_date):
-        # 전체 기간을 순회하며 주말/월요일 체크
-        curr_date = min_date
-        while curr_date <= max_date:
-            # 주말 (토, 일) 회색 배경
-            if curr_date.weekday() == 5: # 토요일
+    if pd.notnull(grid_start) and pd.notnull(grid_end):
+        c_date = grid_start
+        while c_date <= grid_end:
+            # 주말 회색 배경
+            if c_date.weekday() == 5: # 토요일
                 fig.add_vrect(
-                    x0=curr_date, 
-                    x1=curr_date + timedelta(days=2), # 월요일 0시 직전까지
+                    x0=c_date, 
+                    x1=c_date + timedelta(days=2),
                     fillcolor="rgba(100, 100, 100, 0.3)", 
                     layer="below", 
                     line_width=0
                 )
             
-            # 1주일 기준선 (매주 월요일) - 밝은 회색 굵은 선
-            if curr_date.weekday() == 0: # 월요일
+            # 월요일 굵은 선
+            if c_date.weekday() == 0:
                 fig.add_vline(
-                    x=curr_date.timestamp() * 1000, 
+                    x=c_date.timestamp() * 1000, 
                     line_width=2, 
                     line_dash="solid",
                     line_color="rgba(200, 200, 200, 0.6)"
                 )
-            
-            curr_date += timedelta(days=1)
+            c_date += timedelta(days=1)
 
-    # 6. 차트 출력 (스크롤 줌 비활성화 옵션 적용)
+    # 6. 차트 출력
     st.plotly_chart(
         fig, 
         use_container_width=True,
         config={
-            'scrollZoom': False, # [설정] 마우스 휠/핀치 줌 비활성화
-            'displayModeBar': True # 상단 툴바는 표시 (버튼으로 줌 가능)
+            'scrollZoom': False,
+            'displayModeBar': True
         }
     )
 else:
@@ -299,7 +321,6 @@ if filter_activity:
 col_down, col_toggle, col_print = st.columns(3)
 
 with col_down:
-    # 엑셀 다운로드
     download_cols = required_cols + ["남은기간"]
     available_download_cols = [c for c in download_cols if c in data.columns]
     csv = data[available_download_cols].to_csv(index=False).encode('utf-8-sig')
@@ -312,14 +333,12 @@ with col_down:
     )
 
 with col_toggle:
-    # 완료된 업무 보기/끄기
     btn_text = "🙈 완료된 업무 끄기" if st.session_state.show_completed else "👁️ 완료된 업무 보기"
     if st.button(btn_text, use_container_width=True):
         st.session_state.show_completed = not st.session_state.show_completed
         st.rerun()
 
 with col_print:
-    # 인쇄 버튼
     if st.button("🖨️ 인쇄", use_container_width=True):
         st.components.v1.html("<script>window.print()</script>", height=0, width=0)
 
@@ -331,7 +350,6 @@ st.caption("※ 제목(헤더)을 클릭하면 **정렬**됩니다. 수정 후 *
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
-# 에디터 표시
 edited_df = st.data_editor(
     filtered_df,
     num_rows="dynamic",
@@ -340,7 +358,6 @@ edited_df = st.data_editor(
         "구분": st.column_config.SelectboxColumn("구분", options=items_list),
         "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
         "Activity": st.column_config.SelectboxColumn("Activity", options=activity_list),
-        
         "진행률": st.column_config.NumberColumn("진행률(입력)", min_value=0, max_value=100, step=5, format="%d"),
         "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
         "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
@@ -358,25 +375,19 @@ edited_df = st.data_editor(
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 화면 수정 데이터
         save_part_df = edited_df[required_cols + ["_original_id"]]
-        
-        # 숨겨진 데이터 병합
         visible_ids = edited_df["_original_id"].dropna().tolist()
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 합치기
         save_part_df = save_part_df[required_cols]
         hidden_part_df = hidden_data[required_cols]
         
         final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
         
-        # 형식 통일
         final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        # 업로드
         conn.update(worksheet="Sheet1", data=final_save_df)
         st.cache_data.clear()
         
