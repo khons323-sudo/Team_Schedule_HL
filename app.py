@@ -26,7 +26,7 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-   / .block-container {
+    /.block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
     }/
@@ -389,4 +389,44 @@ edited_df = st.data_editor(
     num_rows="dynamic",
     column_config={
         "프로젝트명": st.column_config.SelectboxColumn("프로젝트명", options=projects_list, required=True),
-        "구분": s
+        "구분": st.column_config.SelectboxColumn("구분", options=items_list),
+        "담당자": st.column_config.SelectboxColumn("담당자", options=members_list),
+        "Activity": st.column_config.SelectboxColumn("Activity", options=activity_list),
+        "진행률": st.column_config.NumberColumn("진행률", min_value=0, max_value=100, step=5, format="%d"),
+        "진행상황": st.column_config.ProgressColumn("진행상황(Bar)", format="%d%%", min_value=0, max_value=100),
+        "시작일": st.column_config.DateColumn("시작일", format="YYYY-MM-DD"),
+        "종료일": st.column_config.DateColumn("종료일", format="YYYY-MM-DD"),
+        "남은기간": st.column_config.NumberColumn("남은기간(일)", format="%d일", disabled=True),
+    },
+    column_order=final_display_cols,
+    hide_index=True,
+    key="data_editor"
+)
+
+# -----------------------------------------------------------------------------
+# 9. 저장 버튼
+# -----------------------------------------------------------------------------
+if st.button("💾 변경사항 저장하기", type="primary"):
+    try:
+        save_part_df = edited_df[required_cols + ["_original_id"]]
+        visible_ids = edited_df["_original_id"].dropna().tolist()
+        hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
+        
+        save_part_df = save_part_df[required_cols]
+        hidden_part_df = hidden_data[required_cols]
+        
+        final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
+        
+        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
+
+        conn.update(worksheet="Sheet1", data=final_save_df)
+        load_data.clear()
+        
+        st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
+        time.sleep(1)
+        st.rerun()
+        
+    except Exception as e:
+        st.error(f"저장 중 오류 발생: {e}")
