@@ -22,7 +22,7 @@ custom_css = """
         margin: 0 !important;
         padding: 0 !important;
         line-height: 1.5;
-        color: rgb(49, 51, 63);
+        color: rgb(49, 51, 63); /* 화면에서는 기본색 */
     }
     
     /* 상단 여백 최소화 */
@@ -52,7 +52,7 @@ custom_css = """
     
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 숨길 요소들 */
+        /* 1. 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -63,17 +63,30 @@ custom_css = """
             display: none !important; 
         }
 
-        /* 배경 및 글자색 강제 설정 (인쇄 시 가독성 확보) */
+        /* 2. 배경 흰색 강제 (검은 배경 방지) */
         body, .stApp { 
             background-color: white !important; 
             -webkit-print-color-adjust: exact !important;
+            color: black !important;
             zoom: 75%; 
         }
-        * { 
-            color: black !important; 
-            text-shadow: none !important; 
+
+        /* 3. 타이틀만 80% 투명도 검은색 */
+        .title-text {
+            color: rgba(0, 0, 0, 0.8) !important;
+            -webkit-print-color-adjust: exact !important;
         }
 
+        /* 4. 나머지 모든 글자는 검은색 */
+        * { 
+            text-shadow: none !important; 
+        }
+        
+        div[data-testid="stDataEditor"] * {
+            color: black !important;
+        }
+
+        /* 5. 메인 콘텐츠 확장 */
         .main .block-container { 
             max-width: 100% !important; 
             width: 100% !important; 
@@ -87,6 +100,7 @@ custom_css = """
             display: block !important; 
         }
 
+        /* 6. 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .stPlotlyChart { 
             break-inside: avoid !important; 
             margin-bottom: 20px !important; 
@@ -98,6 +112,7 @@ custom_css = """
             width: 100% !important;
         }
 
+        /* 7. 페이지 설정 */
         @page { 
             size: portrait; 
             margin: 1cm; 
@@ -167,51 +182,7 @@ def wrap_labels(text, width=10):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [입력 섹션]
-# -----------------------------------------------------------------------------
-with st.expander("➕ 새 일정 등록하기"):
-    with st.form("add_task_form"):
-        c1, c2, c3 = st.columns(3)
-        def input_or_select(label, options, key):
-            extended_options = options + ["➕ 직접 입력"]
-            selected = st.selectbox(label, extended_options, key=f"{key}_sel")
-            if selected == "➕ 직접 입력":
-                return st.text_input(f"└ {label} 입력", key=f"{key}_txt")
-            return selected
-
-        with c1:
-            final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
-            final_item = input_or_select("2. 구분", items_list, "item")
-        with c2:
-            final_member = input_or_select("3. 담당자", members_list, "memb")
-            final_act = input_or_select("4. Activity", activity_list, "act")
-        with c3:
-            p_start = st.date_input("5. 시작일", datetime.today())
-            p_end = st.date_input("6. 종료일", datetime.today())
-            st.markdown("<br>", unsafe_allow_html=True)
-            submit_btn = st.form_submit_button("일정 추가", use_container_width=True)
-        
-        if submit_btn:
-            if not final_name:
-                st.error("프로젝트명을 입력해주세요.")
-            else:
-                new_row = pd.DataFrame([{
-                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
-                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
-                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
-                }])
-                save_data = data[required_cols].copy()
-                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
-                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
-                final_df = pd.concat([save_data, new_row], ignore_index=True)
-                
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                conn.update(worksheet="Sheet1", data=final_df)
-                load_data.clear()
-                st.rerun()
-
-# -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트
+# 4. [시각화 섹션] 간트차트
 # -----------------------------------------------------------------------------
 # 필터링 (토글 상태에 따라)
 if st.session_state['show_completed']:
@@ -279,7 +250,6 @@ if not chart_data.empty:
         ),
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
-        # [수정] 높이 500으로 변경
         height=500, 
         paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)',
@@ -304,12 +274,13 @@ if not chart_data.empty:
     fig.update_yaxes(
         fixedrange=True, autorange="reversed", showticklabels=True,
         tickfont=dict(size=12),
-        showgrid=True, 
-        gridcolor='rgba(128, 128, 128, 0.2)', 
+        # [수정] 프로젝트 구분선 삭제 (False)
+        showgrid=False, 
         gridwidth=1,
         layer="below traces"
     )
 
+    # 공휴일 및 주말
     fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
 
     if pd.notnull(label_start) and pd.notnull(label_end):
@@ -322,18 +293,72 @@ if not chart_data.empty:
             if c_date.weekday() == 0:
                 fig.add_vline(x=c_date.timestamp() * 1000, line_width=2, line_dash="solid", line_color="rgba(128, 128, 128, 0.3)")
             c_date += timedelta(days=1)
+            
+    # [수정] 오늘 날짜 빨간색 굵은 파선 표시
+    fig.add_vline(
+        x=datetime.today().timestamp() * 1000, 
+        line_width=8, 
+        line_dash="dash", 
+        line_color="rgba(255, 0, 0, 0.6)"
+    )
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 6. 컨트롤 및 데이터 에디터 섹션 (한 줄 통합)
+# 5. [입력 섹션] (차트 밑으로 이동됨)
+# -----------------------------------------------------------------------------
+st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+
+with st.expander("➕ 새 일정 등록하기"):
+    with st.form("add_task_form"):
+        c1, c2, c3 = st.columns(3)
+        def input_or_select(label, options, key):
+            extended_options = options + ["➕ 직접 입력"]
+            selected = st.selectbox(label, extended_options, key=f"{key}_sel")
+            if selected == "➕ 직접 입력":
+                return st.text_input(f"└ {label} 입력", key=f"{key}_txt")
+            return selected
+
+        with c1:
+            final_name = input_or_select("1. 프로젝트명", projects_list, "proj")
+            final_item = input_or_select("2. 구분", items_list, "item")
+        with c2:
+            final_member = input_or_select("3. 담당자", members_list, "memb")
+            final_act = input_or_select("4. Activity", activity_list, "act")
+        with c3:
+            p_start = st.date_input("5. 시작일", datetime.today())
+            p_end = st.date_input("6. 종료일", datetime.today())
+            st.markdown("<br>", unsafe_allow_html=True)
+            submit_btn = st.form_submit_button("저장", type="primary", use_container_width=True)
+        
+        if submit_btn:
+            if not final_name:
+                st.error("프로젝트명을 입력해주세요.")
+            else:
+                new_row = pd.DataFrame([{
+                    "프로젝트명": final_name, "구분": final_item, "담당자": final_member,
+                    "Activity": final_act, "시작일": p_start.strftime("%Y-%m-%d"),
+                    "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
+                }])
+                save_data = data[required_cols].copy()
+                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
+                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
+                final_df = pd.concat([save_data, new_row], ignore_index=True)
+                
+                conn = st.connection("gsheets", type=GSheetsConnection)
+                conn.update(worksheet="Sheet1", data=final_df)
+                load_data.clear()
+                st.rerun()
+
+# -----------------------------------------------------------------------------
+# 6. [컨트롤 패널] (한 줄 통합)
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# 컬럼 비율 조정: [제목] [라벨] [선택박스] [정렬토글] [완료토글] (버튼 삭제됨)
-c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
+# 컬럼 비율 조정
+c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
@@ -352,6 +377,13 @@ with c_show:
     if show_completed != st.session_state['show_completed']:
         st.session_state['show_completed'] = show_completed
         st.rerun()
+
+with c_add:
+    # ➕ 버튼 (팝오버)
+    with st.popover("➕", use_container_width=True, help="새 일정 등록"):
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.") 
+        # (기능은 위 expander로 옮겼으므로 안내 메시지 혹은 중복 배치 선택 가능)
+        # 디자인 통일성을 위해 버튼만 남겨두거나 삭제 가능. 여기선 버튼 유지하되 expander 안내.
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
