@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
@@ -26,10 +27,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    .block-container {
+    /.block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }
+    }/
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -50,16 +51,19 @@ custom_css = """
     div[data-testid="stCheckbox"] { margin-top: 8px; }
     div[data-testid="stCheckbox"] label { font-size: 14px !important; }
     
+    /* 팝오버 버튼(➕) 스타일 */
+    div[data-testid="stPopover"] button {
+        margin-top: 8px;
+        font-weight: bold;
+    }
+
     /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print, 
-        .sort-area, .stSelectbox, .stCheckbox,
-        div[data-testid="stPopover"]
+        .no-print, .sort-area, .stSelectbox, .stCheckbox, div[data-testid="stPopover"]
         { display: none !important; }
 
         body, .stApp { 
@@ -72,10 +76,18 @@ custom_css = """
         .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; width: 100% !important; overflow: visible !important; display: block !important; }
 
-        div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; margin-bottom: 20px !important; width: 100% !important; }
-        div[data-testid="stDataEditor"] table { font-size: 11px !important; border: 1px solid #000 !important; width: 100% !important; }
+        div[data-testid="stDataEditor"], .js-plotly-plot { 
+            break-inside: avoid !important; 
+            margin-bottom: 20px !important; 
+            width: 100% !important; 
+        }
+        div[data-testid="stDataEditor"] table { 
+            font-size: 11px !important; 
+            border: 1px solid #000 !important; 
+            width: 100% !important;
+        }
 
-        @page { size: portrait; margin: 1cm; }
+        @page { size: landscape; margin: 0.5cm; }
     }
 </style>
 """
@@ -84,56 +96,46 @@ st.markdown(custom_css, unsafe_allow_html=True)
 # 메인 타이틀
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
-# -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 세션 상태 관리
-# -----------------------------------------------------------------------------
+# 세션 상태 초기화
 if 'show_completed' not in st.session_state:
     st.session_state['show_completed'] = False
 
-conn = st.connection("gsheets", type=GSheetsConnection)
-
-def fetch_data_from_sheet():
-    try:
-        df = conn.read(worksheet="Sheet1", ttl=0)
-        return df
-    except Exception as e:
-        st.error(f"데이터 로드 실패: {e}")
-        return pd.DataFrame()
-
-def process_data(df):
-    required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
-    if df.empty:
-        for col in required_cols:
-            df[col] = ""
-        df["진행률"] = 0
-    
-    df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
-    df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
-    
-    if "진행률" in df.columns and df["진행률"].dtype == 'object':
-        df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
-    df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
-    
-    if "_original_id" not in df.columns:
-        df["_original_id"] = df.index
-    
+# -----------------------------------------------------------------------------
+# 2. 데이터 로드 및 캐싱
+# -----------------------------------------------------------------------------
+@st.cache_data(ttl=3600)
+def load_data():
+    conn = st.connection("gsheets", type=GSheetsConnection)
+    df = conn.read(worksheet="Sheet1")
     return df
 
-# 초기 데이터 로드 (세션에 저장)
-if 'data' not in st.session_state:
-    raw_data = fetch_data_from_sheet()
-    st.session_state['data'] = process_data(raw_data)
+try:
+    data = load_data()
+except Exception as e:
+    st.error(f"⚠️ 데이터 연결 실패. 인터넷 상태를 확인하세요.\n에러: {e}")
+    st.stop()
 
 # -----------------------------------------------------------------------------
-# 3. 데이터 준비 및 UI 레이아웃
+# 3. 데이터 전처리
 # -----------------------------------------------------------------------------
-# 세션 데이터 사용
-data = st.session_state['data'].copy()
+required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
 
-# 실시간 계산 컬럼
+if data.empty:
+    for col in required_cols:
+        data[col] = ""
+    data["진행률"] = 0
+
+data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
+data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
+
+if "진행률" in data.columns and data["진행률"].dtype == 'object':
+    data["진행률"] = data["진행률"].astype(str).str.replace('%', '')
+data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
+
 data["진행상황"] = data["진행률"]
+data["_original_id"] = data.index
 
 # 리스트 추출
 def get_unique_list(df, col_name):
@@ -146,13 +148,14 @@ items_list = get_unique_list(data, "구분")
 members_list = get_unique_list(data, "담당자")
 activity_list = get_unique_list(data, "Activity")
 
-def wrap_labels(text, width=10):
+def wrap_labels(text, width=15):
     if pd.isna(text): return ""
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화 섹션] 간트차트
+# 4. [시각화 섹션] 테이블형 간트차트 (구조 변경)
 # -----------------------------------------------------------------------------
+# 필터링
 if st.session_state['show_completed']:
     chart_base_data = data.copy()
 else:
@@ -161,97 +164,171 @@ else:
 chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
 if not chart_data.empty:
-    chart_data["프로젝트명_줄바꿈"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x))
+    # 텍스트 줄바꿈 처리
+    chart_data["프로젝트명_표시"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x, 12))
+    chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
     
-    custom_colors = px.colors.qualitative.Pastel 
-
-    fig = px.timeline(
-        chart_data, 
-        x_start="시작일", x_end="종료일", 
-        y="프로젝트명_줄바꿈",
-        color="담당자",
-        color_discrete_sequence=custom_colors,
-        hover_name="프로젝트명",
-        hover_data=["구분", "Activity", "진행률", "남은기간"],
-        title=""
+    # 데이터 역순 정렬 (차트에서는 위에서 아래로 그리기 위함)
+    chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
+    
+    # 색상 매핑
+    unique_members = chart_data["담당자"].unique()
+    colors = px.colors.qualitative.Pastel
+    color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
+    
+    # [설정] 컬럼 너비 비율 (합계 1이 되도록 조정하거나 픽셀 단위 고려)
+    # 요청 비율: 프로젝트(1), 담당자(0.3), 진행률(0.2), Activity(1), Bar(나머지)
+    # 전체를 10이라고 쳤을때 비율 배분:
+    # 텍스트영역 합: 2.5, 차트영역: 3~4정도? -> 대략적 상대 비율로 설정
+    specs = [[{"type": "domain"}, {"type": "domain"}, {"type": "domain"}, {"type": "domain"}, {"type": "xy"}]]
+    # width ratios: [0.2, 0.06, 0.04, 0.2, 0.5] 정도로 배분
+    
+    fig = make_subplots(
+        rows=1, cols=5,
+        shared_yaxes=True,
+        horizontal_spacing=0.005, # 간격 최소화
+        column_widths=[0.20, 0.08, 0.07, 0.20, 0.45], # 요청 비율 반영
+        subplot_titles=("프로젝트명", "담당자", "진행률", "Activity", "일정"),
+        specs=specs
     )
-    
-    # 담당자 이름 표시
-    fig.add_trace(go.Scatter(
-        x=chart_data["종료일"], 
-        y=chart_data["프로젝트명_줄바꿈"],
-        text="  " + chart_data["담당자"].astype(str), 
-        mode="text",
-        textposition="middle right", 
-        textfont=dict(size=8),
-        showlegend=False
-    ))
-    
-    min_dt = chart_data["시작일"].min()
-    max_dt = chart_data["종료일"].max()
-    if pd.isnull(min_dt): min_dt = today
-    if pd.isnull(max_dt): max_dt = today
-    
-    label_start = min_dt - timedelta(days=90)
-    label_end = max_dt + timedelta(days=90)
-    
-    tick_vals = []
-    tick_text = []
-    korean_days = ["월", "화", "수", "목", "금", "토", "일"]
-    curr = label_start
-    while curr <= label_end:
-        tick_vals.append(curr)
-        label = f"{curr.month}월<br>{curr.day}<br>({korean_days[curr.weekday()]})"
-        tick_text.append(label)
-        curr += timedelta(days=1)
 
+    # 행 개수
+    num_rows = len(chart_data)
+    
+    # 공통 Y축 (인덱스)
+    y_axis = list(range(num_rows))
+
+    # 1. 프로젝트명 (텍스트)
+    fig.add_trace(go.Scatter(
+        x=[0] * num_rows, # 왼쪽 정렬 효과
+        y=y_axis,
+        text=chart_data["프로젝트명_표시"],
+        mode="text",
+        textposition="middle right",
+        textfont=dict(color="black", size=11),
+        hoverinfo="skip"
+    ), row=1, col=1)
+
+    # 2. 담당자 (텍스트)
+    fig.add_trace(go.Scatter(
+        x=[0.5] * num_rows, # 중앙 정렬
+        y=y_axis,
+        text=chart_data["담당자"],
+        mode="text",
+        textposition="middle center",
+        textfont=dict(color="black", size=11),
+        hoverinfo="skip"
+    ), row=1, col=2)
+
+    # 3. 진행률 (텍스트)
+    fig.add_trace(go.Scatter(
+        x=[0.5] * num_rows,
+        y=y_axis,
+        text=chart_data["진행률"].astype(str) + "%",
+        mode="text",
+        textposition="middle center",
+        textfont=dict(color="black", size=11),
+        hoverinfo="skip"
+    ), row=1, col=3)
+
+    # 4. Activity (텍스트)
+    fig.add_trace(go.Scatter(
+        x=[0] * num_rows,
+        y=y_axis,
+        text=chart_data["Activity_표시"],
+        mode="text",
+        textposition="middle right",
+        textfont=dict(color="black", size=11),
+        hoverinfo="skip"
+    ), row=1, col=4)
+
+    # 5. Bar Chart (간트차트)
+    # Plotly에서 날짜축 바 차트를 그리려면 base(시작) + x(기간) 방식 사용
+    # 날짜를 밀리세컨드로 변환하여 길이 계산
+    for idx, row in chart_data.iterrows():
+        start_ms = row["시작일"].timestamp() * 1000
+        end_ms = row["종료일"].timestamp() * 1000
+        duration = end_ms - start_ms
+        
+        fig.add_trace(go.Bar(
+            base=[start_ms],
+            x=[duration],
+            y=[idx],
+            orientation='h',
+            marker_color=color_map.get(row["담당자"], "grey"),
+            opacity=0.8,
+            hoverinfo="x+text",
+            hovertext=f"{row['프로젝트명']}<br>{row['시작일'].strftime('%Y-%m-%d')} ~ {row['종료일'].strftime('%Y-%m-%d')}",
+            showlegend=False, # 범례 삭제
+        ), row=1, col=5)
+
+    # --- 디자인 설정 ---
+    
+    # 날짜 범위 설정 (2주)
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
-
-    fig.update_layout(
-        title=dict(text='<b>Project Schedule</b>', font=dict(size=15), x=0, y=1, xanchor='left', yanchor='top'),
-        xaxis_title="", yaxis_title="", 
-        barmode='group', bargap=0.2, 
-        height=500, 
-        paper_bgcolor='rgba(0,0,0,0)', 
-        plot_bgcolor='rgba(0,0,0,0)',
-        margin=dict(l=10, r=50, t=30, b=10),
-        dragmode="pan", 
-        legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
-        xaxis=dict(range=[view_start, view_end])
-    )
     
+    # 텍스트 컬럼들의 축 설정 (선 숨기기)
+    for i in range(1, 5):
+        fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
+        fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
+
+    # 바 차트 축 설정 (5번째 컬럼)
     fig.update_xaxes(
-        side="top", tickmode="array", tickvals=tick_vals, ticktext=tick_text,
-        tickfont=dict(size=10), showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', griddash='dot'
+        type="date", 
+        range=[view_start, view_end],
+        side="top",
+        tickfont=dict(size=10, color="#333"),
+        gridcolor='rgba(0,0,0,0.1)',
+        row=1, col=5
     )
-    
     fig.update_yaxes(
-        fixedrange=True, autorange="reversed", showticklabels=True,
-        tickfont=dict(size=12), showgrid=False, gridwidth=1, layer="below traces"
+        showticklabels=False, 
+        showgrid=False, # 가로 그리드 삭제
+        row=1, col=5
     )
 
-    fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
+    # 오늘 날짜선 (빨간 파선)
+    fig.add_vline(
+        x=today.timestamp() * 1000, 
+        line_width=2, line_dash="dash", line_color="rgba(255, 0, 0, 0.6)",
+        row=1, col=5
+    )
 
-    if pd.notnull(label_start) and pd.notnull(label_end):
-        c_date = label_start
-        while c_date <= label_end:
-            is_weekend = c_date.weekday() in [5, 6]
-            is_holiday = c_date.strftime("%Y-%m-%d") in fixed_holidays
-            if is_weekend or is_holiday:
-                fig.add_vrect(x0=c_date, x1=c_date + timedelta(days=1), fillcolor="rgba(128, 128, 128, 0.1)", layer="below", line_width=0)
-            if c_date.weekday() == 0:
-                fig.add_vline(x=c_date.timestamp() * 1000, line_width=2, line_dash="solid", line_color="rgba(128, 128, 128, 0.3)")
-            c_date += timedelta(days=1)
-            
-    fig.add_vline(x=datetime.today().timestamp() * 1000, line_width=3, line_dash="dash", line_color="rgba(255, 0, 0, 0.8)")
+    # 구분선 (테이블 가로선)
+    shapes = []
+    for i in range(num_rows + 1):
+        shapes.append(dict(
+            type="line",
+            xref="paper", yref="y",
+            x0=0, x1=1,
+            y0=i - 0.5, y1=i - 0.5,
+            line=dict(color="rgba(0,0,0,0.1)", width=1)
+        ))
+    
+    # 세로 구분선 (열 사이)
+    # (Plotly Subplots에서 세로선은 domain gap으로 처리하거나 별도 shape 추가 필요. 여기선 gap으로 처리됨)
+
+    # 차트 전체 레이아웃
+    chart_height = max(400, num_rows * 40 + 50) # 데이터 양에 따라 높이 자동 조절
+    
+    fig.update_layout(
+        height=chart_height,
+        margin=dict(l=10, r=10, t=30, b=10),
+        paper_bgcolor='rgba(0,0,0,0)',
+        plot_bgcolor='rgba(0,0,0,0)',
+        showlegend=False, # 범례 전체 삭제
+        shapes=shapes,
+        dragmode="pan"
+    )
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
+
 else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션]
+# 5. [입력 섹션] (차트 밑으로 이동)
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -308,19 +385,10 @@ with st.expander("➕ 새 일정 등록하기"):
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# [수정] '간편 추가' 버튼 삭제 및 컬럼 비율 조정
-# [제목: 0.22] [새로고침: 0.08] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.3]
-c_title, c_refresh, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.08, 0.17, 0.15, 0.3])
+c_title, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.17, 0.15, 0.25, 0.05])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
-
-with c_refresh:
-    if st.button("🔄", help="서버 데이터 새로고침"):
-        st.cache_data.clear()
-        raw_data = fetch_data_from_sheet()
-        st.session_state['data'] = process_data(raw_data)
-        st.rerun()
 
 with c_label:
     st.markdown('<div class="sort-label no-print">정렬</div>', unsafe_allow_html=True)
@@ -336,6 +404,10 @@ with c_show:
     if show_completed != st.session_state['show_completed']:
         st.session_state['show_completed'] = show_completed
         st.rerun()
+
+with c_add:
+    with st.popover("➕", use_container_width=True, help="간편 추가"):
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
@@ -392,12 +464,24 @@ if st.button("💾 변경사항 저장하기", type="primary"):
                 save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
                 
                 conn.update(worksheet="Sheet1", data=save_df)
-                st.session_state['data'] = process_data(save_df)
+                
+                # 세션 데이터 재로딩
+                raw_data = conn.read(worksheet="Sheet1", ttl=0)
+                
+                # 전처리 (함수 재사용을 위해 process_data 함수 정의 필요했으나 여기선 직접 처리)
+                raw_data["시작일"] = pd.to_datetime(raw_data["시작일"], errors='coerce')
+                raw_data["종료일"] = pd.to_datetime(raw_data["종료일"], errors='coerce')
+                if "진행률" in raw_data.columns:
+                    raw_data["진행률"] = raw_data["진행률"].astype(str).str.replace('%', '')
+                    raw_data["진행률"] = pd.to_numeric(raw_data["진행률"], errors='coerce').fillna(0).astype(int)
+                raw_data["_original_id"] = raw_data.index
+                
+                st.session_state['data'] = raw_data
                 
                 st.toast("저장되었습니다!", icon="✅")
                 time.sleep(0.5)
                 st.rerun()
             else:
-                st.error("데이터 병합 오류: 고유 ID를 찾을 수 없습니다.")
+                st.error("데이터 병합 오류")
     except Exception as e:
         st.error(f"저장 중 오류 발생: {e}")
