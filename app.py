@@ -485,20 +485,29 @@ edited_df = st.data_editor(
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
         with st.spinner("저장 중..."):
-            save_df = edited_df.copy()
-
-            save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-            save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-            save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
-
-            conn.update(worksheet="Sheet1", data=save_df)
-
-            load_data_from_sheet.clear()
-            st.session_state['data'] = process_dataframe(save_df)
-
-            st.toast("저장되었습니다!", icon="✅")
-            time.sleep(0.5)
-            st.rerun()
-
+            edited_part = edited_df.copy()
+            full_data = st.session_state['data'].copy()
+            
+            if "_original_id" in full_data.columns and "_original_id" in edited_part.columns:
+                full_data.set_index("_original_id", inplace=True)
+                edited_part.set_index("_original_id", inplace=True)
+                full_data.update(edited_part)
+                full_data.reset_index(inplace=True)
+                
+                save_df = full_data.copy()
+                save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+                save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+                save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
+                
+                conn.update(worksheet="Sheet1", data=save_df)
+                
+                load_data_from_sheet.clear()
+                st.session_state['data'] = process_dataframe(save_df)
+                
+                st.toast("저장되었습니다!", icon="✅")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("데이터 병합 오류: 고유 ID를 찾을 수 없습니다.")
     except Exception as e:
         st.error(f"저장 중 오류 발생: {e}")
