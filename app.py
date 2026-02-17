@@ -52,6 +52,7 @@ custom_css = """
     
     /* [중요] 인쇄 모드 스타일 */
     @media print {
+        /* 숨길 요소들 */
         header, footer, aside, 
         [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -84,57 +85,57 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 세션 상태 관리 (속도 최적화의 핵심)
+# 2. 데이터 로드 및 세션 상태 관리
 # -----------------------------------------------------------------------------
-# 세션 상태 초기화
 if 'show_completed' not in st.session_state:
     st.session_state['show_completed'] = False
 
-# 구글 시트에서 데이터를 불러와서 전처리하는 함수
-def fetch_data_from_sheets():
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(worksheet="Sheet1", ttl=0) # ttl=0: 즉시 갱신
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+def fetch_data_from_sheet():
+    try:
+        df = conn.read(worksheet="Sheet1", ttl=0)
+        return df
+    except Exception as e:
+        st.error(f"데이터 로드 실패: {e}")
+        return pd.DataFrame()
+
+def process_data(df):
+    required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
+    if df.empty:
+        for col in required_cols:
+            df[col] = ""
+        df["진행률"] = 0
+    
+    df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
+    df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
+    
+    if "진행률" in df.columns and df["진행률"].dtype == 'object':
+        df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
+    df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
+    
+    if "_original_id" not in df.columns:
+        df["_original_id"] = df.index
+    
     return df
 
-# [최적화] 세션 스테이트에 데이터가 없으면 로드, 있으면 기존 데이터 사용
+# 초기 데이터 로드 (세션에 저장)
 if 'data' not in st.session_state:
-    try:
-        with st.spinner("데이터를 불러오는 중..."):
-            raw_data = fetch_data_from_sheets()
-            
-            # 전처리 과정 (여기서 한 번만 수행)
-            required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
-            if raw_data.empty:
-                for col in required_cols:
-                    raw_data[col] = ""
-                raw_data["진행률"] = 0
-            
-            raw_data["시작일"] = pd.to_datetime(raw_data["시작일"], errors='coerce')
-            raw_data["종료일"] = pd.to_datetime(raw_data["종료일"], errors='coerce')
-            
-            if "진행률" in raw_data.columns and raw_data["진행률"].dtype == 'object':
-                raw_data["진행률"] = raw_data["진행률"].astype(str).str.replace('%', '')
-            raw_data["진행률"] = pd.to_numeric(raw_data["진행률"], errors='coerce').fillna(0).astype(int)
-            
-            # 고유 ID 생성 (인덱스 보존)
-            raw_data["_original_id"] = raw_data.index
-            
-            # 세션에 저장
-            st.session_state['data'] = raw_data
-            
-    except Exception as e:
-        st.error(f"⚠️ 데이터 연결 실패. 인터넷 상태를 확인하세요.\n에러: {e}")
-        st.stop()
+    raw_data = fetch_data_from_sheet()
+    st.session_state['data'] = process_data(raw_data)
 
-# 이제부터는 st.session_state['data']를 사용하여 작업 (매우 빠름)
+# -----------------------------------------------------------------------------
+# 3. 데이터 준비 및 UI 레이아웃
+# -----------------------------------------------------------------------------
+# 세션 데이터 사용
 data = st.session_state['data'].copy()
 
-# 남은기간 계산 (매번 갱신)
+# 실시간 계산 컬럼
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 data["진행상황"] = data["진행률"]
 
-# 리스트 추출 함수
+# 리스트 추출
 def get_unique_list(df, col_name):
     if col_name in df.columns:
         return sorted(df[col_name].astype(str).dropna().unique().tolist())
@@ -175,7 +176,7 @@ if not chart_data.empty:
         title=""
     )
     
-    # 바 끝에 담당자 이름 표시
+    # 담당자 이름 표시
     fig.add_trace(go.Scatter(
         x=chart_data["종료일"], 
         y=chart_data["프로젝트명_줄바꿈"],
@@ -186,7 +187,6 @@ if not chart_data.empty:
         showlegend=False
     ))
     
-    # 날짜 라벨
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
@@ -209,11 +209,7 @@ if not chart_data.empty:
     view_end = today + timedelta(days=11)
 
     fig.update_layout(
-        title=dict(
-            text='<b>Project Schedule</b>',
-            font=dict(size=15),
-            x=0, y=1, xanchor='left', yanchor='top'
-        ),
+        title=dict(text='<b>Project Schedule</b>', font=dict(size=15), x=0, y=1, xanchor='left', yanchor='top'),
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
         height=500, 
@@ -221,28 +217,18 @@ if not chart_data.empty:
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=10, r=50, t=30, b=10),
         dragmode="pan", 
-        legend=dict(
-            orientation="v", 
-            yanchor="bottom", y=0, 
-            xanchor="left", x=1.01
-        ),
+        legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
         xaxis=dict(range=[view_start, view_end])
     )
     
     fig.update_xaxes(
         side="top", tickmode="array", tickvals=tick_vals, ticktext=tick_text,
-        tickfont=dict(size=10),
-        showgrid=True, 
-        gridcolor='rgba(128, 128, 128, 0.2)', 
-        griddash='dot'
+        tickfont=dict(size=10), showgrid=True, gridcolor='rgba(128, 128, 128, 0.2)', griddash='dot'
     )
     
     fig.update_yaxes(
         fixedrange=True, autorange="reversed", showticklabels=True,
-        tickfont=dict(size=12),
-        showgrid=False, # 구분선 삭제
-        gridwidth=1,
-        layer="below traces"
+        tickfont=dict(size=12), showgrid=False, gridwidth=1, layer="below traces"
     )
 
     fixed_holidays = ["2024-01-01", "2024-02-09", "2024-02-10", "2024-02-11", "2024-02-12", "2024-03-01", "2024-04-10", "2024-05-05", "2024-05-06", "2024-05-15", "2024-06-06", "2024-08-15", "2024-09-16", "2024-09-17", "2024-09-18", "2024-10-03", "2024-10-09", "2024-12-25", "2025-01-01", "2025-01-28", "2025-01-29", "2025-01-30", "2025-03-01", "2025-05-05", "2025-05-06", "2025-06-06", "2025-08-15", "2025-10-03", "2025-10-05", "2025-10-06", "2025-10-07", "2025-10-09", "2025-12-25"]
@@ -258,20 +244,14 @@ if not chart_data.empty:
                 fig.add_vline(x=c_date.timestamp() * 1000, line_width=2, line_dash="solid", line_color="rgba(128, 128, 128, 0.3)")
             c_date += timedelta(days=1)
             
-    # 오늘 날짜 (빨간 파선)
-    fig.add_vline(
-        x=datetime.today().timestamp() * 1000, 
-        line_width=8, 
-        line_dash="dash", 
-        line_color="rgba(255, 0, 0, 0.6)"
-    )
+    fig.add_vline(x=datetime.today().timestamp() * 1000, line_width=3, line_dash="dash", line_color="rgba(255, 0, 0, 0.8)")
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션] (차트 밑으로 이동)
+# 5. [입력 섹션]
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -307,40 +287,39 @@ with st.expander("➕ 새 일정 등록하기"):
                     "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
                 }])
                 
-                # 세션 데이터 업데이트 (빠른 반영)
                 st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
-                # 구글 시트 저장 (백그라운드 처리 느낌으로)
-                conn = st.connection("gsheets", type=GSheetsConnection)
-                # 원본 시트에 저장 시 날짜 포맷 주의
-                save_data = st.session_state['data'].copy()
-                if "_original_id" in save_data.columns:
-                    save_data = save_data.drop(columns=["_original_id"])
                 
-                # 저장용 포맷 변환
-                save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
-                save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
-                
-                conn.update(worksheet="Sheet1", data=save_data)
-                st.success("추가되었습니다!")
-                time.sleep(0.5)
-                st.rerun()
+                try:
+                    save_data = st.session_state['data'].copy()
+                    if "_original_id" in save_data.columns:
+                        save_data = save_data.drop(columns=["_original_id"])
+                    
+                    save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
+                    save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
+                    conn.update(worksheet="Sheet1", data=save_data)
+                    st.success("추가되었습니다!")
+                    time.sleep(0.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"저장 실패: {e}")
 
 # -----------------------------------------------------------------------------
-# 6. [컨트롤 패널] (한 줄 통합)
+# 6. [컨트롤 패널]
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
 
-# 컬럼 비율 조정
-# [제목: 0.22] [새로고침: 0.05] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.25] [팝오버: 0.05]
-c_title, c_refresh, c_label, c_box, c_sort, c_show, c_add = st.columns([0.22, 0.08, 0.08, 0.17, 0.15, 0.25, 0.05])
+# [수정] '간편 추가' 버튼 삭제 및 컬럼 비율 조정
+# [제목: 0.22] [새로고침: 0.08] [라벨: 0.08] [선택박스: 0.17] [정렬토글: 0.15] [완료토글: 0.3]
+c_title, c_refresh, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.08, 0.17, 0.15, 0.3])
 
 with c_title:
     st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
 
 with c_refresh:
-    # [New] 수동 새로고침 버튼 (다른 사람이 수정한 내용 불러오기)
     if st.button("🔄", help="서버 데이터 새로고침"):
-        del st.session_state['data'] # 캐시 삭제
+        st.cache_data.clear()
+        raw_data = fetch_data_from_sheet()
+        st.session_state['data'] = process_data(raw_data)
         st.rerun()
 
 with c_label:
@@ -358,43 +337,13 @@ with c_show:
         st.session_state['show_completed'] = show_completed
         st.rerun()
 
-with c_add:
-    # ➕ 버튼 (팝오버 - 간단 입력용)
-    with st.popover("➕", use_container_width=True, help="간편 추가"):
-        st.write("간편 추가")
-        with st.form("quick_add_form"):
-            q_name = st.text_input("프로젝트명")
-            q_member = st.text_input("담당자")
-            q_start = st.date_input("시작", datetime.today())
-            q_end = st.date_input("종료", datetime.today())
-            if st.form_submit_button("저장"):
-                if not q_name:
-                    st.error("프로젝트명 필수")
-                else:
-                    new_row = pd.DataFrame([{
-                        "프로젝트명": q_name, "구분": "직접입력", "담당자": q_member,
-                        "Activity": "직접입력", "시작일": q_start.strftime("%Y-%m-%d"),
-                        "종료일": q_end.strftime("%Y-%m-%d"), "진행률": 0
-                    }])
-                    # 세션 업데이트
-                    st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
-                    
-                    # 시트 저장
-                    save_data = st.session_state['data'].copy()
-                    if "_original_id" in save_data.columns:
-                        save_data = save_data.drop(columns=["_original_id"])
-                    save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d")
-                    save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d")
-                    
-                    conn = st.connection("gsheets", type=GSheetsConnection)
-                    conn.update(worksheet="Sheet1", data=save_data)
-                    st.rerun()
-
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
 # -----------------------------------------------------------------------------
-# 정렬 적용
-filtered_df = base_data.copy()
+filtered_df = st.session_state['data'].copy()
+if not st.session_state['show_completed']:
+    filtered_df = filtered_df[filtered_df["진행률"] < 100]
+
 filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
 
 st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요. (브라우저 인쇄: Ctrl+P)</div>', unsafe_allow_html=True)
@@ -425,70 +374,30 @@ edited_df = st.data_editor(
     key="data_editor"
 )
 
-# -----------------------------------------------------------------------------
-# 8. 저장 버튼 (최적화된 저장 로직)
-# -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 1. 화면에서 수정된 데이터 가져오기
-        # 에디터는 필터링된 데이터만 보여주므로, 전체 데이터와 병합해야 함
-        
-        # 현재 에디터에 있는 데이터 (수정된 내용 포함)
-        edited_part = edited_df.copy()
-        
-        # 원본 데이터 (세션에 있는 전체 데이터)
-        original_full_data = st.session_state['data'].copy()
-        
-        # _original_id를 기준으로 병합 (업데이트)
-        # edited_part에 있는 행들은 original_full_data에서 교체
-        
-        # 인덱스 설정
-        if "_original_id" in edited_part.columns:
-            edited_part.set_index("_original_id", inplace=True)
-        if "_original_id" in original_full_data.columns:
-            original_full_data.set_index("_original_id", inplace=True)
+        with st.spinner("저장 중..."):
+            edited_part = edited_df.copy()
+            full_data = st.session_state['data'].copy()
             
-        # 업데이트 (combine_first나 update 사용)
-        original_full_data.update(edited_part)
-        
-        # 새로 추가된 행 처리 (인덱스가 없는 경우)
-        # data_editor에서 행을 추가하면 새로운 인덱스가 생김. 
-        # 복잡함을 피하기 위해, 그냥 현재 화면 데이터 + 숨겨진 데이터를 합치는 방식 사용
-        
-        visible_ids = edited_df["_original_id"].dropna().tolist()
-        hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
-        
-        # 필수 컬럼만 남기기
-        save_part_df = edited_df[required_cols]
-        hidden_part_df = hidden_data[required_cols]
-        
-        final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
-        
-        # 날짜 포맷 통일
-        final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
-        final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
-
-        # 구글 시트에 업로드
-        conn = st.connection("gsheets", type=GSheetsConnection)
-        conn.update(worksheet="Sheet1", data=final_save_df)
-        
-        # [핵심] 세션 상태 즉시 업데이트 (리로드 방지)
-        # 저장된 데이터를 다시 세션에 반영하여 화면 갱신 속도 향상
-        # 단, _original_id 등을 다시 만들어야 하므로 가볍게 처리
-        
-        # 메모리 상의 데이터도 업데이트
-        updated_data = final_save_df.copy()
-        updated_data["시작일"] = pd.to_datetime(updated_data["시작일"], errors='coerce')
-        updated_data["종료일"] = pd.to_datetime(updated_data["종료일"], errors='coerce')
-        updated_data["_original_id"] = updated_data.index
-        updated_data["진행상황"] = updated_data["진행률"]
-        
-        st.session_state['data'] = updated_data
-        
-        st.toast("저장되었습니다!", icon="✅")
-        time.sleep(0.5)
-        st.rerun()
-        
+            if "_original_id" in full_data.columns and "_original_id" in edited_part.columns:
+                full_data.set_index("_original_id", inplace=True)
+                edited_part.set_index("_original_id", inplace=True)
+                full_data.update(edited_part)
+                full_data.reset_index(inplace=True)
+                
+                save_df = full_data.copy()
+                save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+                save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
+                save_df["진행률"] = pd.to_numeric(save_df["진행률"]).fillna(0).astype(int)
+                
+                conn.update(worksheet="Sheet1", data=save_df)
+                st.session_state['data'] = process_data(save_df)
+                
+                st.toast("저장되었습니다!", icon="✅")
+                time.sleep(0.5)
+                st.rerun()
+            else:
+                st.error("데이터 병합 오류: 고유 ID를 찾을 수 없습니다.")
     except Exception as e:
         st.error(f"저장 중 오류 발생: {e}")
