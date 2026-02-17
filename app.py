@@ -26,10 +26,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-    .block-container {
+  /  .block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }
+    }/
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -142,47 +142,55 @@ if 'show_completed' not in st.session_state:
     st.session_state['show_completed'] = False
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 및 세션 상태 초기화 (KeyError 해결 핵심)
+# 2. 데이터 로드 및 세션 상태 초기화
 # -----------------------------------------------------------------------------
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 데이터 전처리 함수
-def process_data(df):
+@st.cache_data(ttl=3600)
+def load_data_from_sheet():
+    return conn.read(worksheet="Sheet1")
+
+def process_dataframe(df):
     required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
     if df.empty:
         for col in required_cols:
             df[col] = ""
         df["진행률"] = 0
     
+    # 여기서 변환을 하지만, 세션에 저장되었다가 불러올 때 다시 문자가 될 수 있음
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
     
-    # 진행률 숫자 변환
     if "진행률" in df.columns and df["진행률"].dtype == 'object':
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
     df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
     
-    # 고유 ID 보존
     if "_original_id" not in df.columns:
         df["_original_id"] = df.index
     
     return df
 
-# [핵심] 세션에 데이터가 없으면 최초 로드
+# 세션에 데이터가 없으면 최초 로드
 if 'data' not in st.session_state:
     try:
-        # 캐시 없이 최신 데이터 로드
-        raw_data = conn.read(worksheet="Sheet1", ttl=0)
-        st.session_state['data'] = process_data(raw_data)
+        raw_data = load_data_from_sheet()
+        st.session_state['data'] = process_dataframe(raw_data)
     except Exception as e:
         st.error(f"⚠️ 데이터 불러오기 실패: {e}")
         st.stop()
 
-# 이후 로직에서는 세션에 있는 데이터를 사용 (속도 향상 및 에러 방지)
+# 이후 로직에서는 세션 데이터를 사용
 data = st.session_state['data'].copy()
 
-# 실시간 계산 (남은기간, 진행상황 복사)
+# -----------------------------------------------------------------------------
+# [에러 해결] 날짜 형식을 여기서 다시 한번 강제 변환
+# -----------------------------------------------------------------------------
+data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
+data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
+
+# 실시간 계산
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
+# 날짜 변환 후 계산하므로 TypeError 방지됨
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 data["진행상황"] = data["진행률"]
 
@@ -218,7 +226,6 @@ if not chart_data.empty:
     # 정렬
     chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
     
-    # 색상 매핑
     unique_members = chart_data["담당자"].unique()
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
@@ -254,7 +261,7 @@ if not chart_data.empty:
         end_ms = row["종료일"].timestamp() * 1000
         duration = end_ms - start_ms
         
-        # Bar 내부 텍스트: 기간/진행률
+        # Bar 내부 텍스트
         day_diff = (row["종료일"] - row["시작일"]).days + 1
         bar_text = f"{day_diff}일 / {row['진행률']}%"
 
@@ -280,7 +287,6 @@ if not chart_data.empty:
     view_start = today - timedelta(days=3)
     view_end = today + timedelta(days=11)
     
-    # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
@@ -321,7 +327,7 @@ else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션] (차트 밑)
+# 5. [입력 섹션]
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
@@ -357,10 +363,7 @@ with st.expander("➕ 새 일정 등록하기"):
                     "종료일": p_end.strftime("%Y-%m-%d"), "진행률": 0
                 }])
                 
-                # 세션에 즉시 반영 (KeyError 방지)
-                if 'data' not in st.session_state:
-                    st.session_state['data'] = pd.DataFrame(columns=required_cols)
-                    
+                # 세션에 즉시 반영
                 st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
                 
                 try:
@@ -402,9 +405,9 @@ with c_show:
         st.session_state['show_completed'] = show_completed
         st.rerun()
 
-with c_add:
+/with c_add:
     with st.popover("➕", use_container_width=True, help="간편 추가"):
-        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")/
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
@@ -449,14 +452,12 @@ if st.button("💾 변경사항 저장하기", type="primary"):
             edited_part = edited_df.copy()
             full_data = st.session_state['data'].copy()
             
-            # 인덱스 기준 병합 (고유 ID 사용)
             if "_original_id" in full_data.columns and "_original_id" in edited_part.columns:
                 full_data.set_index("_original_id", inplace=True)
                 edited_part.set_index("_original_id", inplace=True)
                 full_data.update(edited_part)
                 full_data.reset_index(inplace=True)
                 
-                # 저장 데이터 준비
                 save_df = full_data.copy()
                 save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
                 save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
@@ -464,7 +465,8 @@ if st.button("💾 변경사항 저장하기", type="primary"):
                 
                 conn.update(worksheet="Sheet1", data=save_df)
                 
-                # 세션 데이터도 최신화
+                # 캐시 삭제 및 세션 갱신
+                load_data_from_sheet.clear()
                 st.session_state['data'] = process_dataframe(save_df)
                 
                 st.toast("저장되었습니다!", icon="✅")
