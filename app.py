@@ -26,10 +26,10 @@ custom_css = """
     }
     
     /* 상단 여백 최소화 */
-  /  .block-container {
+    .block-container {
         padding-top: 1rem !important;
         padding-bottom: 2rem !important;
-    }/
+    }
 
     /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -405,9 +405,9 @@ with c_show:
         st.session_state['show_completed'] = show_completed
         st.rerun()
 
-/with c_add:
+with c_add:
     with st.popover("➕", use_container_width=True, help="간편 추가"):
-        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")/
+        st.write("위쪽 '새 일정 등록하기' 섹션을 이용해주세요.")
 
 # -----------------------------------------------------------------------------
 # 7. 데이터 에디터 및 저장
