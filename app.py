@@ -4,7 +4,6 @@ import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
-import streamlit.components.v1 as components
 import textwrap 
 
 # -----------------------------------------------------------------------------
@@ -15,21 +14,22 @@ st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 # CSS: 화면 및 인쇄 스타일링
 custom_css = """
 <style>
-    /* 1. 타이틀 크기 조정 (기존보다 70% 축소) 및 여백 제거 */
+    /* 1. 메인 타이틀 크기 조정 (기존 대비 70% 축소) */
     .title-text {
-        font-size: 1.8rem !important; /* 약 70% 크기 */
+        font-size: 1.5rem !important; /* 크기 축소 */
         font-weight: 700;
-        margin-bottom: 0px !important;
+        margin-top: -1rem !important; /* 위쪽 여백 제거 */
+        margin-bottom: 0.5rem !important;
         padding-bottom: 0px !important;
     }
     
-    /* 상단 기본 여백 제거 */
+    /* 상단 기본 여백 최소화 */
     .block-container {
-        padding-top: 1.5rem !important;
+        padding-top: 1rem !important;
         padding-bottom: 1rem !important;
     }
 
-    /* 입력 폼 스타일링: 선택박스와 텍스트입력 사이 간격 좁히기 */
+    /* 입력 폼 스타일링 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     
@@ -40,39 +40,50 @@ custom_css = """
         height: 100%;
         font-weight: bold;
         font-size: 1rem;
+        padding-top: 15px; /* 셀렉트박스와 높이 맞춤 */
+        justify-content: flex-end; /* 우측 정렬 */
+    }
+    
+    /* 업무현황 서브헤더 스타일 */
+    .subheader-text {
+        font-size: 1.3rem;
+        font-weight: 600;
+        padding-top: 10px;
     }
 
-    /* 인쇄 모드 스타일 */
+    /* [중요] 인쇄 모드 스타일 */
     @media print {
-        /* UI 숨기기 */
-        header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
+        /* 1. 인쇄 시 숨길 요소들 (버튼, 사이드바, 정렬컨트롤 등) */
+        header, footer, aside, 
+        [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
-        div[data-testid="stVerticalBlockBorderWrapper"], button { 
+        div[data-testid="stVerticalBlockBorderWrapper"], button,
+        .no-print, /* 업무현황 텍스트 등 특정 클래스 숨김 */
+        .stSelectbox, .stCheckbox /* 선택박스, 토글 숨김 */
+        { 
             display: none !important; 
         }
 
-        /* 배경 및 글자색 강제 설정 (흰 종이에 검은 글씨) */
+        /* 2. 배경 및 글자색 강제 설정 (흰 종이에 검은 글씨) */
         body, .stApp { background-color: white !important; -webkit-print-color-adjust: exact !important; }
         * { color: black !important; text-shadow: none !important; }
 
-        /* 메인 콘텐츠 확장 */
+        /* 3. 메인 콘텐츠 확장 */
         .main .block-container { max-width: 100% !important; width: 100% !important; padding: 0 !important; margin: 0 !important; }
         html, body, [data-testid="stAppViewContainer"], [data-testid="stMain"] { height: auto !important; overflow: visible !important; display: block !important; }
 
-        /* 차트 및 표가 페이지 중간에 잘리지 않도록 설정 */
+        /* 4. 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .stPlotlyChart { break-inside: avoid !important; margin-bottom: 10px !important; }
-        
-        /* 데이터 표 스타일 */
         div[data-testid="stDataEditor"] table { font-size: 10px !important; border: 1px solid #000 !important; }
 
-        /* 페이지 설정 (여백 최소화) */
+        /* 5. 페이지 설정 */
         @page { size: landscape; margin: 5mm; }
     }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
 
-# [수정] 타이틀 (HTML로 직접 그려서 크기/여백 제어)
+# [수정] 타이틀 (크기 70% 적용)
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 작업일정</div>', unsafe_allow_html=True)
 
 # 세션 상태 초기화
@@ -132,7 +143,7 @@ def wrap_labels(text, width=10):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [입력 섹션] (접어두기 기본)
+# 4. [입력 섹션]
 # -----------------------------------------------------------------------------
 with st.expander("➕ 새 일정 등록하기"):
     with st.form("add_task_form"):
@@ -176,11 +187,8 @@ with st.expander("➕ 새 일정 등록하기"):
                 st.rerun()
 
 # -----------------------------------------------------------------------------
-# 5. [시각화 섹션] 간트차트 (높이 축소, 여백 최소화)
+# 5. [시각화 섹션] 간트차트 (높이 60%, 여백 최소화)
 # -----------------------------------------------------------------------------
-# [수정] 차트 제목 삭제 및 여백 조정 (위로 붙이기)
-# st.subheader("📊 일정") <-- 삭제함 (한 페이지 출력을 위해 공간 확보)
-
 # 필터링
 if st.session_state.show_completed:
     base_data = data.copy()
@@ -204,7 +212,7 @@ if not chart_data.empty:
         title=""
     )
     
-    # 날짜 라벨 생성 (Wide Range)
+    # 날짜 라벨 (Wide Range)
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
@@ -230,12 +238,11 @@ if not chart_data.empty:
     fig.update_layout(
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
-        # [수정] 높이 300px (기존의 60%)
-        height=300, 
+        height=300, # 높이 축소
         paper_bgcolor='rgb(40, 40, 40)', plot_bgcolor='rgb(40, 40, 40)',
         font=dict(color="white"),
-        # [수정] 상단 여백 최소화 (t=10)
-        margin=dict(l=10, r=10, t=10, b=10),
+        # [수정] 상단 여백 최소화 (t=20) - 날짜와 타이틀 사이 간격 좁힘
+        margin=dict(l=10, r=10, t=20, b=10),
         dragmode="pan", 
         legend=dict(orientation="v", yanchor="bottom", y=0, xanchor="left", x=1.01),
         xaxis=dict(range=[view_start, view_end])
@@ -273,28 +280,26 @@ else:
     st.info("표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 6. [간격 조정 및 업무 현황]
+# 6. [간격 조정 및 컨트롤 섹션 (한 줄 배치)]
 # -----------------------------------------------------------------------------
-# [수정] 차트와 업무현황 사이의 간격 조정 (약 1.5배)
-st.markdown("<div style='height: 30px;'></div>", unsafe_allow_html=True)
+st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True) # 간격
 
-# -----------------------------------------------------------------------------
-# 7. [정렬 컨트롤 및 버튼 - 한 줄 배치]
-# -----------------------------------------------------------------------------
-# [수정] 정렬 라벨, 선택박스, 오름차순 버튼을 한 줄에 배치
-c_title, c_sort_label, c_sort_box, c_sort_toggle = st.columns([0.2, 0.15, 0.2, 0.45])
+# [수정] 업무현황, 정렬라벨, 선택박스, 토글을 전체 폭으로 배분
+c_title, c_sort_label, c_sort_box, c_sort_toggle = st.columns([0.25, 0.15, 0.3, 0.3])
 
 with c_title:
-    st.subheader("📝 업무 현황")
+    # 인쇄 시 숨기기 위해 클래스 추가
+    st.markdown('<div class="subheader-text no-print">📝 업무 현황</div>', unsafe_allow_html=True)
 
 with c_sort_label:
-    st.markdown('<div class="sort-label">🗂️ 정렬 기준 :</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sort-label no-print">🗂️ 정렬 기준 :</div>', unsafe_allow_html=True)
 
 with c_sort_box:
-    # 라벨을 숨기고('collapsed') 위의 텍스트로 대체하여 정렬 맞춤
+    # 선택박스 (인쇄 시 CSS로 숨겨짐)
     sort_col = st.selectbox("정렬", ["프로젝트명", "구분", "담당자", "시작일", "종료일", "진행률"], label_visibility="collapsed")
 
 with c_sort_toggle:
+    # 토글 (인쇄 시 CSS로 숨겨짐)
     sort_asc = st.toggle("오름차순 정렬", value=True)
 
 # 정렬 적용
@@ -302,22 +307,8 @@ filtered_df = base_data.copy()
 filtered_df = filtered_df.sort_values(by=sort_col, ascending=sort_asc)
 
 # -----------------------------------------------------------------------------
-# 8. 필터링 및 버튼
+# 7. 버튼 그룹
 # -----------------------------------------------------------------------------
-with st.expander("🔍 상세 필터링 (클릭하여 열기)", expanded=False):
-    f1, f2, f3, f4 = st.columns(4)
-    with f1: filter_project = st.multiselect("프로젝트명", options=projects_list)
-    with f2: filter_item = st.multiselect("구분", options=items_list)
-    with f3: filter_member = st.multiselect("담당자", options=members_list)
-    with f4: filter_activity = st.multiselect("Activity", options=activity_list)
-
-# 2차 필터링
-if filter_project: filtered_df = filtered_df[filtered_df["프로젝트명"].isin(filter_project)]
-if filter_item: filtered_df = filtered_df[filtered_df["구분"].isin(filter_item)]
-if filter_member: filtered_df = filtered_df[filtered_df["담당자"].isin(filter_member)]
-if filter_activity: filtered_df = filtered_df[filtered_df["Activity"].isin(filter_activity)]
-
-# 버튼 그룹
 b1, b2, b3 = st.columns(3)
 with b1:
     download_cols = required_cols + ["남은기간"]
@@ -334,20 +325,19 @@ with b3:
         components.html("<script>window.print()</script>", height=0, width=0)
 
 # -----------------------------------------------------------------------------
-# 9. 데이터 에디터 (모두 보이게 높이 자동 조절)
+# 8. 데이터 에디터 (모두 보이게 높이 자동 조절)
 # -----------------------------------------------------------------------------
-st.caption("※ 내용을 수정한 후 **저장** 버튼을 꼭 누르세요.")
+# 캡션은 인쇄 안 함
+st.markdown('<div class="no-print" style="color:gray; font-size:0.8rem; margin-bottom:5px;">※ 내용을 수정한 후 <b>저장</b> 버튼을 꼭 누르세요.</div>', unsafe_allow_html=True)
 
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "남은기간", "진행률", "진행상황"]
 final_display_cols = [c for c in display_cols if c in filtered_df.columns]
 
-# [수정] 데이터 개수에 따라 높이 자동 계산 (행당 35px + 헤더 38px)
-# 최소 높이 150px, 최대 제한 없음 (모두 보이기 위해)
+# 높이 자동 계산 (스크롤 없이 모두 표시)
 dynamic_height = (len(filtered_df) + 1) * 35 + 3
 
 edited_df = st.data_editor(
     filtered_df,
-    # [수정] 계산된 높이 적용하여 스크롤 없이 모두 표시
     height=dynamic_height,
     use_container_width=True,
     num_rows="dynamic",
@@ -368,7 +358,7 @@ edited_df = st.data_editor(
 )
 
 # -----------------------------------------------------------------------------
-# 10. 저장 버튼
+# 9. 저장 버튼
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
@@ -385,7 +375,6 @@ if st.button("💾 변경사항 저장하기", type="primary"):
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        conn = st.connection("gsheets", type=GSheetsConnection)
         conn.update(worksheet="Sheet1", data=final_save_df)
         load_data.clear()
         
