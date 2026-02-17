@@ -232,7 +232,7 @@ if not chart_data.empty:
         ),
         xaxis_title="", yaxis_title="", 
         barmode='group', bargap=0.2, 
-        height=300, 
+        height=500, 
         paper_bgcolor='rgba(0,0,0,0)', 
         plot_bgcolor='rgba(0,0,0,0)',
         margin=dict(l=10, r=50, t=30, b=10),
