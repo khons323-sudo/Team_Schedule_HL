@@ -6,7 +6,6 @@ from datetime import datetime, timedelta
 import time
 import streamlit.components.v1 as components
 import textwrap 
-import holidays
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 인쇄용 CSS
@@ -47,20 +46,15 @@ if 'show_completed' not in st.session_state:
     st.session_state.show_completed = False
 
 # -----------------------------------------------------------------------------
-# 2. 데이터 로드 함수 (최적화 핵심: 캐싱 적용)
+# 2. 구글 시트 연결 (안전하게 로드)
 # -----------------------------------------------------------------------------
-# ttl=3600: 1시간 동안은 메모리에서 불러옴 (저장 버튼 누르면 강제 초기화됨)
-@st.cache_data(ttl=3600)
-def load_data():
-    conn = st.connection("gsheets", type=GSheetsConnection)
-    df = conn.read(worksheet="Sheet1")
-    return df
+conn = st.connection("gsheets", type=GSheetsConnection)
 
-# 데이터 불러오기 시도
 try:
-    data = load_data()
+    # ttl=600: 10분간 캐시 유지 (속도 향상), 저장 시에는 캐시 삭제됨
+    data = conn.read(worksheet="Sheet1", ttl=600)
 except Exception as e:
-    st.error(f"⚠️ 데이터 연결 실패. 인터넷 상태나 구글 시트 권한을 확인하세요.\n에러: {e}")
+    st.error(f"⚠️ 데이터 불러오기 오류. 잠시 후 다시 시도해주세요.\n(에러 내용: {e})")
     st.stop()
 
 # -----------------------------------------------------------------------------
@@ -68,37 +62,38 @@ except Exception as e:
 # -----------------------------------------------------------------------------
 required_cols = ["프로젝트명", "구분", "담당자", "Activity", "시작일", "종료일", "진행률"]
 
-# 데이터가 비어있으면 초기화
 if data.empty:
     for col in required_cols:
         data[col] = ""
     data["진행률"] = 0
 
-# 날짜 및 숫자 변환 (Vectorized Operation으로 속도 향상)
+# 날짜 변환
 data["시작일"] = pd.to_datetime(data["시작일"], errors='coerce')
 data["종료일"] = pd.to_datetime(data["종료일"], errors='coerce')
 
+# 남은기간 계산
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 data["남은기간"] = (data["종료일"] - today).dt.days.fillna(0).astype(int)
 
-# 진행률 처리
+# 진행률 숫자 변환
 if "진행률" in data.columns and data["진행률"].dtype == 'object':
     data["진행률"] = data["진행률"].astype(str).str.replace('%', '')
 data["진행률"] = pd.to_numeric(data["진행률"], errors='coerce').fillna(0).astype(int)
 
+# 시각화용 컬럼
 data["진행상황"] = data["진행률"]
 data["_original_id"] = data.index
 
-# 리스트 추출 (캐시된 데이터 기반으로 빠르게 처리)
-def get_unique_list(df, col_name):
-    if col_name in df.columns:
-        return sorted(df[col_name].astype(str).dropna().unique().tolist())
+# 리스트 추출
+def get_unique_list(col_name):
+    if col_name in data.columns:
+        return sorted(data[col_name].astype(str).dropna().unique().tolist())
     return []
 
-projects_list = get_unique_list(data, "프로젝트명")
-items_list = get_unique_list(data, "구분")
-members_list = get_unique_list(data, "담당자")
-activity_list = get_unique_list(data, "Activity")
+projects_list = get_unique_list("프로젝트명")
+items_list = get_unique_list("구분")
+members_list = get_unique_list("담당자")
+activity_list = get_unique_list("Activity")
 
 # 프로젝트명 줄바꿈 함수
 def wrap_labels(text, width=10):
@@ -145,11 +140,12 @@ with st.expander("➕ 새 일정 등록하기"):
                 save_data = data[required_cols].copy()
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d")
+                
                 final_df = pd.concat([save_data, new_row], ignore_index=True)
                 
-                conn = st.connection("gsheets", type=GSheetsConnection)
+                # 업로드 및 캐시 삭제
                 conn.update(worksheet="Sheet1", data=final_df)
-                load_data.clear() # 캐시 초기화 (중요)
+                st.cache_data.clear() # 모든 캐시 초기화
                 st.rerun()
 
 # -----------------------------------------------------------------------------
@@ -180,7 +176,7 @@ if not chart_data.empty:
         title=""
     )
     
-    # 날짜 라벨 생성 (Wide Range: 오늘 기준 -90일 ~ +90일)
+    # 날짜 라벨 (Wide Range)
     min_dt = chart_data["시작일"].min()
     max_dt = chart_data["종료일"].max()
     if pd.isnull(min_dt): min_dt = today
@@ -228,13 +224,23 @@ if not chart_data.empty:
         layer="below traces"
     )
 
-    # 공휴일 및 주말 표시
-    kr_holidays = holidays.KR()
+    # [수정] 공휴일/주말 안전하게 처리 (라이브러리 없을 경우 대비)
+    try:
+        import holidays
+        kr_holidays = holidays.KR()
+        has_holidays = True
+    except ImportError:
+        kr_holidays = []
+        has_holidays = False
+        # 만약 에러나면 여기서 멈추지 않고 주말만이라도 그리기 위해 패스
+
     if pd.notnull(label_start) and pd.notnull(label_end):
         c_date = label_start
         while c_date <= label_end:
             is_weekend = c_date.weekday() in [5, 6]
-            is_holiday = c_date.date() in kr_holidays
+            is_holiday = False
+            if has_holidays and c_date.date() in kr_holidays:
+                is_holiday = True
             
             if is_weekend or is_holiday:
                 fig.add_vrect(
@@ -336,29 +342,21 @@ edited_df = st.data_editor(
 # -----------------------------------------------------------------------------
 if st.button("💾 변경사항 저장하기", type="primary"):
     try:
-        # 화면 수정 데이터
         save_part_df = edited_df[required_cols + ["_original_id"]]
-        
-        # 숨겨진 데이터 보존
         visible_ids = edited_df["_original_id"].dropna().tolist()
         hidden_data = data[~data["_original_id"].isin(visible_ids)].copy()
         
-        # 합치기
         save_part_df = save_part_df[required_cols]
         hidden_part_df = hidden_data[required_cols]
+        
         final_save_df = pd.concat([save_part_df, hidden_part_df], ignore_index=True)
         
-        # 형식 통일
         final_save_df["시작일"] = pd.to_datetime(final_save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["종료일"] = pd.to_datetime(final_save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
         final_save_df["진행률"] = pd.to_numeric(final_save_df["진행률"]).fillna(0).astype(int)
 
-        # 업로드 및 캐시 초기화
-        conn = st.connection("gsheets", type=GSheetsConnection)
         conn.update(worksheet="Sheet1", data=final_save_df)
-        
-        # [핵심] 저장 시 캐시 삭제하여 다음 로드 시 최신 데이터 반영
-        load_data.clear()
+        st.cache_data.clear() # 저장 후 캐시 삭제
         
         st.toast("저장되었습니다! (잠시 후 새로고침)", icon="✅")
         time.sleep(1)
