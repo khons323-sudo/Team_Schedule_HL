@@ -19,12 +19,9 @@ try:
 except ImportError:
     kr_holidays = {}
 
-# [중요] 한국 시간(KST) 설정 및 Naive Datetime 변환
 KST = pytz.timezone('Asia/Seoul')
 
 def get_now_kst():
-    """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환 (Naive Datetime)"""
-    # 타임존 정보를 제거해야 Plotly가 이를 UTC로 재변환하지 않고 그대로 표시함
     return datetime.now(KST).replace(tzinfo=None)
 
 st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide", page_icon="📅")
@@ -153,7 +150,7 @@ def wrap_labels(text, width=15):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화] 테이블형 간트차트 (핵심 수정 적용)
+# 4. [시각화] 테이블형 간트차트
 # -----------------------------------------------------------------------------
 if st.session_state['show_completed']:
     chart_base_data = data.copy()
@@ -183,19 +180,28 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
+    # [수정] 헤더 스타일링 (Bold, 15px) 및 컬럼 비율 (테이블 30%, 차트 70%)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
-        column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
-        subplot_titles=("프로젝트명", "구분", "담당자", "Activity", ""),
+        column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], # 합계: 0.3(테이블) + 0.7(차트) = 1.0
+        subplot_titles=(
+            "<b><span style='font-size:15px; color:black'>프로젝트명</span></b>", 
+            "<b><span style='font-size:15px; color:black'>구분</span></b>", 
+            "<b><span style='font-size:15px; color:black'>담당자</span></b>", 
+            "<b><span style='font-size:15px; color:black'>Activity</span></b>", 
+            ""
+        ),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
 
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
-    text_color = "black" if force_print_theme else ("white" if is_dark_mode else None)
-    common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=11), hoverinfo="skip")
+    text_color = "black" if force_print_theme else ("white" if is_dark_mode else "black")
+    
+    # [수정] 테이블 글자 크기 8로 설정
+    common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=8), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["구분"], **common_props), row=1, col=2)
@@ -206,15 +212,12 @@ if not chart_data.empty:
         start_date = row["시작일"]
         end_date = row["종료일"]
         
-        # [수정] timestamp 사용 제거 -> 날짜 객체 그대로 사용
-        # [수정] 기간 계산: 종료일 포함을 위해 +1일 후 밀리초로 변환
         duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
-        
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
         fig.add_trace(go.Bar(
-            base=[start_date], # datetime 객체 직접 전달 (타임존 오차 방지)
+            base=[start_date], 
             x=[duration_ms], 
             y=[idx],
             orientation='h',
@@ -223,7 +226,8 @@ if not chart_data.empty:
             hoverinfo="text",
             hovertext=f"<b>{row['프로젝트명']}</b><br>{row['Activity']}<br>{row['시작일'].strftime('%Y-%m-%d')} ~ {row['종료일'].strftime('%Y-%m-%d')}<br>작업일: {work_days}일",
             text=bar_text, textposition='inside', insidetextanchor='middle',
-            textfont=dict(color='black', size=10),
+            # [수정] 차트 내부 글자 크기 8
+            textfont=dict(color='black', size=8),
             showlegend=False
         ), row=1, col=5)
 
@@ -245,22 +249,19 @@ if not chart_data.empty:
         holiday_text_color = "rgba(0, 0, 0, 0.3)"
         grid_color = "rgba(128, 128, 128, 0.2)"
 
-    # 행(Row) 구분선 (가로선)
     for i in range(num_rows + 1):
         fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color=grid_color, width=1))
 
-    # X축 눈금 및 수동 그리드 생성 (세로선)
     tick_vals = []
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
     curr_check = calc_start
     while curr_check <= calc_end:
-        # [수정] 날짜 라벨을 정오(12:00) 기준으로 설정하여 중앙 정렬
+        # 날짜 라벨 중앙 정렬 (12:00)
         tick_vals.append(curr_check + timedelta(hours=12))
         
-        # [수정] 세로 그리드(Grid)를 00:00(자정) 기준 수동 생성
-        # showgrid=True를 쓰면 라벨(12시) 위치에 선이 그어지므로, 수동으로 00:00에 그립니다.
+        # 세로 그리드 (00:00)
         fig.add_shape(
             type="line", xref="x", yref="y",
             x0=curr_check, x1=curr_check, 
@@ -288,7 +289,6 @@ if not chart_data.empty:
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # [수정] X축 설정: showgrid=False (수동 그리드 사용 위해)
     fig.update_xaxes(
         type="date", 
         range=[view_start, view_end], 
@@ -296,22 +296,28 @@ if not chart_data.empty:
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        showgrid=False,  # 자동 그리드 끄기 (수동 라인 사용)
+        showgrid=False,
         zeroline=False,
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # [수정] 오늘 기준선 (Naive Datetime 사용)
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
+    
+    # [수정] 행 높이 25px 계산, 최대 400px 제한
+    calculated_height = num_rows * 25 + 70  # 70은 헤더 및 여백 영역 보정값
+    final_height = min(400, max(300, calculated_height))
+    
+    # [수정] 제목/툴과 날짜 축 사이 간격(7) 조정
     fig.update_layout(
-        height=max(300, num_rows * 40 + 80),
-        margin=dict(l=10, r=10, t=60, b=10),
+        height=final_height,
+        margin=dict(l=10, r=10, t=50, b=10), # top margin 조정
         title={
             'text': "<b>Project Schedule</b>",
-            'y': 0.98, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
+            'y': 0.99, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
+            'pad': dict(b=7), # [수정] 간격 7
             'font': dict(color=text_color, size=16)
         },
         font=dict(color=text_color),
@@ -320,6 +326,11 @@ if not chart_data.empty:
         showlegend=False, 
         dragmode="pan"
     )
+    
+    # 테마 설정으로 인해 텍스트 색상 강제 지정이 필요할 수 있음
+    if force_print_theme:
+         fig.update_annotations(font=dict(color="black"))
+
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("📅 표시할 일정이 없습니다.")
