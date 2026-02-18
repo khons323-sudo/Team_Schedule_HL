@@ -10,70 +10,55 @@ import textwrap
 import numpy as np
 import pytz
 
-# 휴일 계산 라이브러리
+# -----------------------------------------------------------------------------
+# 1. 초기 설정 및 라이브러리 로드
+# -----------------------------------------------------------------------------
 try:
     import holidays
     kr_holidays = holidays.KR()
 except ImportError:
     kr_holidays = {}
 
-# [중요] 한국 시간(KST) 설정
+# [중요] 한국 시간(KST) 설정 및 Naive Datetime 변환
 KST = pytz.timezone('Asia/Seoul')
 
 def get_now_kst():
     """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환 (Naive Datetime)"""
+    # 타임존 정보를 제거해야 Plotly가 이를 UTC로 재변환하지 않고 그대로 표시함
     return datetime.now(KST).replace(tzinfo=None)
 
-# -----------------------------------------------------------------------------
-# 1. 페이지 설정 및 디자인 CSS
-# -----------------------------------------------------------------------------
-st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide")
+st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide", page_icon="📅")
 
 custom_css = """
 <style>
-    /* 메인 타이틀 */
     .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
-    
-    /* 입력 폼 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
-
-    /* 업무리스트 테이블 헤더 */
     div[data-testid="stDataEditor"] th {
-        background-color: #cccccc !important; 
-        color: black !important;
+        background-color: #f0f2f6 !important; 
+        color: #31333F !important;
         font-size: 14px !important;
         font-weight: 700 !important;
-        border: 1px solid black !important;
     }
-    div[data-testid="stDataEditor"] td { font-size: 12px !important; }
-
-    /* 인쇄 모드 스타일 */
     @media print {
         header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
         .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle
         { display: none !important; }
-
-        body, .stApp { background-color: white !important; color: rgba(0, 0, 0, 0.8) !important; zoom: 80%; }
+        body, .stApp { background-color: white !important; color: black !important; zoom: 80%; }
         .main .block-container { max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important; }
-        
-        div[data-testid="stDataEditor"], .js-plotly-plot { break-inside: avoid !important; margin-bottom: 20px !important; width: 100% !important; }
-        div[data-testid="stDataEditor"] table { color: rgba(0, 0, 0, 0.8) !important; background-color: white !important; border: 1px solid #000 !important; border-collapse: collapse !important; width: 100% !important; }
-        div[data-testid="stDataEditor"] th { background-color: #cccccc !important; color: black !important; font-size: 14px !important; font-weight: bold !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
-        div[data-testid="stDataEditor"] td { background-color: white !important; color: rgba(0, 0, 0, 0.8) !important; border: 1px solid #ddd !important; }
+        div[data-testid="stDataEditor"] table { border: 1px solid #000 !important; width: 100% !important; }
         @page { size: landscape; margin: 0.5cm; }
     }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
-
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 유틸리티 함수 (Numpy 최적화)
+# 2. 유틸리티 함수
 # -----------------------------------------------------------------------------
 def is_holiday(date_obj):
     if date_obj.weekday() >= 5: return True
@@ -113,7 +98,7 @@ def load_data_from_sheet():
         return pd.DataFrame()
 
 def process_dataframe(df):
-    required_cols = ["프로젝트명", "구분", "담당자", "Activity", "작업기간", "시작일", "종료일", "진행률"]
+    required_cols = ["프로젝트명", "구분", "담당자", "Activity", "작업기간", "시작일", "종료일", "진행률", "_original_id"]
     if df.empty:
         df = pd.DataFrame(columns=required_cols)
     else:
@@ -125,7 +110,6 @@ def process_dataframe(df):
     
     now_kst = get_now_kst()
     today_naive = pd.to_datetime(now_kst.date())
-    
     df["남은기간"] = (df["종료일"] - today_naive).dt.days.fillna(0).astype(int)
 
     if "진행률" in df.columns and df["진행률"].dtype == 'object':
@@ -138,10 +122,13 @@ def process_dataframe(df):
     )
     df["진행상황"] = df["진행률"]
     
-    if "_original_id" not in df.columns:
-        df["_original_id"] = range(len(df))
+    if "_original_id" not in df.columns or df["_original_id"].isnull().all():
+         df["_original_id"] = range(len(df))
     else:
-        df["_original_id"] = df["_original_id"].fillna(pd.Series(range(len(df))))
+        mask = df["_original_id"].isna()
+        start_id = df["_original_id"].max() + 1 if not df["_original_id"].dropna().empty else 0
+        df.loc[mask, "_original_id"] = range(start_id, start_id + mask.sum())
+
     return df
 
 if 'data' not in st.session_state:
@@ -166,7 +153,7 @@ def wrap_labels(text, width=15):
     return "<br>".join(textwrap.wrap(str(text), width=width, break_long_words=True))
 
 # -----------------------------------------------------------------------------
-# 4. [시각화] 테이블형 간트차트
+# 4. [시각화] 테이블형 간트차트 (핵심 수정 적용)
 # -----------------------------------------------------------------------------
 if st.session_state['show_completed']:
     chart_base_data = data.copy()
@@ -201,26 +188,13 @@ if not chart_data.empty:
         shared_yaxes=True,
         horizontal_spacing=0.005, 
         column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
-        subplot_titles=(
-            "<span style='font-size:14px; color:black; font-weight:bold'>프로젝트명</span>", 
-            "<span style='font-size:14px; color:black; font-weight:bold'>구분</span>", 
-            "<span style='font-size:14px; color:black; font-weight:bold'>담당자</span>", 
-            "<span style='font-size:14px; color:black; font-weight:bold'>Activity</span>", 
-            ""
-        ),
+        subplot_titles=("프로젝트명", "구분", "담당자", "Activity", ""),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
 
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
-    
-    if force_print_theme:
-        text_color = "black"
-    elif is_dark_mode:
-        text_color = "white"
-    else:
-        text_color = None
-
+    text_color = "black" if force_print_theme else ("white" if is_dark_mode else None)
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=11), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
@@ -232,13 +206,15 @@ if not chart_data.empty:
         start_date = row["시작일"]
         end_date = row["종료일"]
         
-        # 종료일 포함하여 1일 추가 계산
+        # [수정] timestamp 사용 제거 -> 날짜 객체 그대로 사용
+        # [수정] 기간 계산: 종료일 포함을 위해 +1일 후 밀리초로 변환
         duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
+        
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
         fig.add_trace(go.Bar(
-            base=[start_date], 
+            base=[start_date], # datetime 객체 직접 전달 (타임존 오차 방지)
             x=[duration_ms], 
             y=[idx],
             orientation='h',
@@ -251,107 +227,91 @@ if not chart_data.empty:
             showlegend=False
         ), row=1, col=5)
 
-    # -------------------------------------------------------------------------
-    # 렌더링 범위 제한
-    # -------------------------------------------------------------------------
-    view_start_initial = today - timedelta(days=5)
-    view_end_initial = today + timedelta(days=20)
-
-    # 루프는 휴일 계산을 위해서만 최소한으로 돕니다.
-    calc_start = today - timedelta(days=180)
-    calc_end = today + timedelta(days=180)
+    view_start = today - timedelta(days=5)
+    view_end = today + timedelta(days=20)
     
-    if not chart_data.empty:
-        min_date = chart_data["시작일"].min()
-        max_date = chart_data["종료일"].max()
-        if pd.notna(min_date) and pd.notna(max_date):
-            safe_min = today - timedelta(days=365)
-            safe_max = today + timedelta(days=365)
-            calc_start = max(min(calc_start, min_date - timedelta(days=30)), safe_min)
-            calc_end = min(max(calc_end, max_date + timedelta(days=30)), safe_max)
+    calc_start = today - timedelta(days=60)
+    calc_end = today + timedelta(days=60)
+    if pd.notna(chart_data["시작일"].min()) and pd.notna(chart_data["종료일"].max()):
+        calc_start = min(calc_start, chart_data["시작일"].min() - timedelta(days=10))
+        calc_end = max(calc_end, chart_data["종료일"].max() + timedelta(days=10))
 
     if is_dark_mode and not force_print_theme:
-        holiday_fill_color = "rgba(255, 255, 255, 0.15)"
-        holiday_text_color = "rgba(255, 255, 255, 0.4)"
+        holiday_fill_color = "rgba(255, 255, 255, 0.05)"
+        holiday_text_color = "rgba(255, 255, 255, 0.3)"
+        grid_color = "rgba(255, 255, 255, 0.1)"
     else:
-        holiday_fill_color = "rgba(0, 0, 0, 0.15)"
-        holiday_text_color = "rgba(0, 0, 0, 0.4)"
+        holiday_fill_color = "rgba(0, 0, 0, 0.05)"
+        holiday_text_color = "rgba(0, 0, 0, 0.3)"
+        grid_color = "rgba(128, 128, 128, 0.2)"
 
-    # 1. 가로선 (Row 구분)
+    # 행(Row) 구분선 (가로선)
     for i in range(num_rows + 1):
-        fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1))
+        fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color=grid_color, width=1))
 
+    # X축 눈금 및 수동 그리드 생성 (세로선)
     tick_vals = []
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
-    # 2. 휴일 배경 및 날짜 라벨 루프
-    # [최적화] 매일 세로선을 긋지 않습니다. (세로선은 Native Grid로 대체)
-    max_loops = 2000
-    loop_count = 0
     curr_check = calc_start
-    
-    while curr_check <= calc_end and loop_count < max_loops:
-        tick_vals.append(curr_check + timedelta(hours=12)) # 12시간 오프셋 (중앙 정렬)
-        korean_day = day_map[curr_check.strftime('%a')]
-        formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
+    while curr_check <= calc_end:
+        # [수정] 날짜 라벨을 정오(12:00) 기준으로 설정하여 중앙 정렬
+        tick_vals.append(curr_check + timedelta(hours=12))
         
-        is_hol = is_holiday(curr_check)
-        if is_hol:
-            formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>" 
-            # 휴일 배경만 그립니다.
+        # [수정] 세로 그리드(Grid)를 00:00(자정) 기준 수동 생성
+        # showgrid=True를 쓰면 라벨(12시) 위치에 선이 그어지므로, 수동으로 00:00에 그립니다.
+        fig.add_shape(
+            type="line", xref="x", yref="y",
+            x0=curr_check, x1=curr_check, 
+            y0=-0.5, y1=num_rows - 0.5,
+            line=dict(color=grid_color, width=1, dash="dash"),
+            row=1, col=5
+        )
+
+        korean_day = day_map[curr_check.strftime('%a')]
+        formatted_date = f"{curr_check.month}/{curr_check.day}<br>{korean_day}"
+        
+        if is_holiday(curr_check):
+            formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>"
             fig.add_shape(
-                type="rect",
-                xref="x", yref="y", 
-                x0=curr_check, 
-                x1=curr_check + timedelta(days=1),
-                y0=-0.5, 
-                y1=num_rows - 0.5,
-                fillcolor=holiday_fill_color,
-                opacity=1,
-                layer="below", 
-                line_width=0,
+                type="rect", xref="x", yref="y", 
+                x0=curr_check, x1=curr_check + timedelta(days=1),
+                y0=-0.5, y1=num_rows - 0.5,
+                fillcolor=holiday_fill_color, opacity=1, layer="below", line_width=0,
                 row=1, col=5 
             )
-
         tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
-        loop_count += 1
 
-    # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # [핵심] Native Grid 사용으로 성능 향상 및 세로선 구현
+    # [수정] X축 설정: showgrid=False (수동 그리드 사용 위해)
     fig.update_xaxes(
         type="date", 
-        range=[view_start_initial, view_end_initial], 
+        range=[view_start, view_end], 
         side="top",
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        # Native Grid 켜기
-        showgrid=True,
-        gridcolor='rgba(128,128,128,0.2)',
-        griddash='dash',
-        dtick="D1",
-        ticklabelmode="period", # 라벨은 중앙에, 그리드는 경계선에
+        showgrid=False,  # 자동 그리드 끄기 (수동 라인 사용)
+        zeroline=False,
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
+    # [수정] 오늘 기준선 (Naive Datetime 사용)
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
-    
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        margin=dict(l=10, r=10, t=60, b=10), 
+        margin=dict(l=10, r=10, t=60, b=10),
         title={
             'text': "<b>Project Schedule</b>",
-            'y': 0.98, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=5),
+            'y': 0.98, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
             'font': dict(color=text_color, size=16)
         },
         font=dict(color=text_color),
@@ -360,12 +320,7 @@ if not chart_data.empty:
         showlegend=False, 
         dragmode="pan"
     )
-    
-    if force_print_theme:
-        for annotation in fig['layout']['annotations']:
-            annotation['font']['color'] = "black"
-
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True}, theme="streamlit")
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("📅 표시할 일정이 없습니다.")
 
@@ -408,26 +363,25 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
         if not new_proj or new_proj == "선택하세요":
             st.error("프로젝트명을 입력해주세요.")
         else:
+            new_id = int(time.time())
             new_row = pd.DataFrame([{
-                "프로젝트명": new_proj, "구분": new_item if new_item != "선택하세요" else "", 
+                "프로젝트명": new_proj, 
+                "구분": new_item if new_item != "선택하세요" else "", 
                 "담당자": new_member if new_member != "선택하세요" else "",
                 "Activity": new_act if new_act != "선택하세요" else "", 
                 "시작일": pd.to_datetime(st.session_state.new_start), 
                 "종료일": pd.to_datetime(st.session_state.new_end), 
                 "작업기간": st.session_state.new_days,
                 "진행률": 0,
-                "_original_id": len(st.session_state['data']) + 9999
+                "_original_id": new_id
             }])
             st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
             try:
-                # [수정] 변수명 오타 수정 save_df -> save_data
                 save_data = st.session_state['data'].copy()
                 if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
-                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
-                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
+                save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").fillna("")
+                save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").fillna("")
                 conn.update(worksheet="Sheet1", data=save_data)
-                
-                # [수정] process_dataframe 인자도 save_data로 수정
                 load_data_from_sheet.clear()
                 st.session_state['data'] = process_dataframe(save_data)
                 st.success("✅ 추가되었습니다!")
@@ -452,14 +406,16 @@ with c_show:
         st.rerun()
 
 editor_df = st.session_state['data'].copy()
-if not st.session_state['show_completed']: editor_df = editor_df[editor_df["진행률"] < 100]
-editor_df = editor_df.sort_values(by=sort_col, ascending=sort_asc)
+if not st.session_state['show_completed']: 
+    editor_df = editor_df[editor_df["진행률"] < 100]
+
+editor_df = editor_df.sort_values(by=sort_col, ascending=sort_asc).reset_index(drop=True)
 
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "작업기간", "시작일", "종료일", "남은기간", "진행률", "진행상황", "_original_id"]
 
 edited_df = st.data_editor(
     editor_df,
-    height=(len(editor_df) + 1) * 35 + 3,
+    height=(len(editor_df) + 2) * 35 + 3,
     use_container_width=True,
     num_rows="dynamic",
     column_config={
@@ -484,73 +440,40 @@ if st.button("💾 변경사항 저장하기", type="primary", use_container_wid
     try:
         with st.spinner("저장 중..."):
             master_df = st.session_state['data'].copy()
+            existing_ids_in_editor = edited_df.dropna(subset=["_original_id"])["_original_id"].unique()
+            master_df = master_df[master_df["_original_id"].isin(existing_ids_in_editor)].copy()
             
-            # ---------------------------------------------------------
-            # [추가됨] 1. 삭제된 행 처리 로직
-            # ---------------------------------------------------------
-            # 편집기(edited_df)에 표시되었어야 할 원본 ID 목록 (필터링된 상태 기준)
-            # 주의: editor_df는 data_editor 위에 선언된 변수여야 함
-            original_visible_ids = set(editor_df["_original_id"].dropna().tolist())
-            
-            # 편집 후 남은 ID 목록
-            remaining_ids = set(edited_df["_original_id"].dropna().tolist())
-            
-            # 화면에는 있었는데(visible), 편집 후 사라진(remaining X) ID 찾기
-            deleted_ids = original_visible_ids - remaining_ids
-            
-            # 마스터 데이터에서 삭제된 ID 제거
-            if deleted_ids:
-                master_df = master_df[~master_df["_original_id"].isin(deleted_ids)]
-
-            # ---------------------------------------------------------
-            # 2. 수정된 내용 업데이트 (기존 로직)
-            # ---------------------------------------------------------
             if "_original_id" in master_df.columns:
                 master_df.set_index("_original_id", inplace=True)
-                
-                # 수정된 데이터 중 기존 ID가 있는 것만 추출
                 updates = edited_df.dropna(subset=["_original_id"]).set_index("_original_id")
                 
-                # 공통된 인덱스에 대해 내용 업데이트
-                # (삭제된 행은 위에서 이미 master_df에서 제거되었으므로 업데이트 대상 아님)
-                
-                # 날짜/기간 상호 연산 로직 (기존 유지)
-                common_ids = updates.index.intersection(master_df.index)
-                for idx in common_ids:
-                    old_row = master_df.loc[idx]
-                    new_row = updates.loc[idx]
-                    if new_row["작업기간"] != old_row["작업기간"]:
-                        new_end_date = add_business_days(new_row["시작일"], new_row["작업기간"])
-                        updates.at[idx, "종료일"] = new_end_date
-                    elif (new_row["시작일"] != old_row["시작일"]) or (new_row["종료일"] != old_row["종료일"]):
-                        updates.at[idx, "작업기간"] = get_business_days(new_row["시작일"], new_row["종료일"])
+                for idx in updates.index:
+                    if idx in master_df.index:
+                        old_row = master_df.loc[idx]
+                        new_row = updates.loc[idx]
+                        if new_row["작업기간"] != old_row["작업기간"]:
+                            updates.at[idx, "종료일"] = add_business_days(new_row["시작일"], new_row["작업기간"])
+                        elif (new_row["시작일"] != old_row["시작일"]) or (new_row["종료일"] != old_row["종료일"]):
+                            updates.at[idx, "작업기간"] = get_business_days(new_row["시작일"], new_row["종료일"])
 
                 master_df.update(updates)
                 master_df.reset_index(inplace=True)
-                
-                # ---------------------------------------------------------
-                # 3. 새 행 추가 (기존 로직)
-                # ---------------------------------------------------------
+
                 new_rows = edited_df[edited_df["_original_id"].isna() | (edited_df["_original_id"] == "")]
                 if not new_rows.empty:
                     new_rows = new_rows.drop(columns=["_original_id"], errors='ignore')
                     new_rows["작업기간"] = new_rows.apply(lambda x: get_business_days(x["시작일"], x["종료일"]), axis=1)
                     master_df = pd.concat([master_df, new_rows], ignore_index=True)
 
-                # ---------------------------------------------------------
-                # 4. 구글 시트 저장 및 초기화
-                # ---------------------------------------------------------
-                save_data = master_df.copy()
-                if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
+                save_df = master_df.copy()
+                if "_original_id" in save_df.columns: save_df.drop(columns=["_original_id"], inplace=True)
+                save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").fillna("")
+                save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").fillna("")
                 
-                # 날짜 포맷팅 (NaT 방지)
-                save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
-                save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
-                
-                conn.update(worksheet="Sheet1", data=save_data)
+                conn.update(worksheet="Sheet1", data=save_df)
                 load_data_from_sheet.clear()
-                st.session_state['data'] = process_dataframe(save_data)
-                st.success("✅ 저장되었습니다. (삭제 반영됨)")
-                time.sleep(0.5)
+                st.session_state['data'] = process_dataframe(save_df)
+                st.success("✅ 저장되었습니다.")
+                time.sleep(1)
                 st.rerun()
-    except Exception as e: st.error(f"저장 실패: {e}")
+    except Exception as e: st.error(f"오류: {e}")
