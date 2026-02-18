@@ -17,12 +17,11 @@ try:
 except ImportError:
     kr_holidays = {}
 
-# [중요] 한국 시간(KST) 설정 및 Naive 변환 함수
-# 타임존 정보를 제거(replace(tzinfo=None))하여 라이브러리 간 자동 변환으로 인한 9시간 오차 방지
+# [중요] 한국 시간(KST) 설정 (타임존 정보 제거하여 순수 날짜/시간만 사용)
 KST = pytz.timezone('Asia/Seoul')
 
 def get_now_kst():
-    """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환"""
+    """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환 (Naive Datetime)"""
     return datetime.now(KST).replace(tzinfo=None)
 
 # -----------------------------------------------------------------------------
@@ -160,11 +159,11 @@ def process_dataframe(df):
         for col in required_cols:
             if col not in df.columns: df[col] = ""
 
-    # 날짜 파싱 (Naive Datetime으로 자동 변환됨)
+    # 날짜 파싱 (Naive Datetime)
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
     
-    # [수정] 오늘 날짜 기준도 Naive KST로 통일
+    # 오늘 날짜 기준 (Naive KST)
     now_kst = get_now_kst()
     today_naive = pd.to_datetime(now_kst.date())
     
@@ -193,7 +192,7 @@ if 'data' not in st.session_state:
 
 data = st.session_state['data'].copy()
 
-# [수정] 전역 today 변수: 시간 정보가 없는 순수 날짜 (Naive)
+# 전역 today 변수 (Naive KST)
 now_kst = get_now_kst()
 today = pd.to_datetime(now_kst.date())
 
@@ -273,14 +272,21 @@ if not chart_data.empty:
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["Activity_표시"], **common_props), row=1, col=4)
 
     for idx, row in chart_data.iterrows():
-        start_ms = row["시작일"].timestamp() * 1000
-        end_ms = row["종료일"].timestamp() * 1000
-        duration_ms = end_ms - start_ms
+        # [수정] timestamp() 대신 datetime 객체 직접 사용 (오차 제거)
+        start_date = row["시작일"]
+        end_date = row["종료일"]
+        
+        # [수정] 기간을 timedelta -> milliseconds로 계산
+        duration_ms = (end_date - start_date).total_seconds() * 1000
+        
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
         fig.add_trace(go.Bar(
-            base=[start_ms], x=[duration_ms], y=[idx],
+            # [중요] base에 datetime 객체 직접 전달
+            base=[start_date], 
+            x=[duration_ms], 
+            y=[idx],
             orientation='h',
             marker_color=color_map.get(row["담당자"], "grey"),
             opacity=0.8,
@@ -377,9 +383,7 @@ if not chart_data.empty:
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # [수정] 붉은색 기준선(오늘) 좌표 보정
-    # 타임스탬프 변환 없이, Naive KST datetime 객체를 직접 x값으로 사용
-    # Plotly는 이를 차트 기준 시간으로 정확히 매핑함
+    # [수정] 붉은색 기준선(오늘) 좌표 보정: Naive KST Datetime 객체 직접 사용
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
@@ -464,7 +468,6 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
                 if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
-                
                 conn.update(worksheet="Sheet1", data=save_data)
                 load_data_from_sheet.clear()
                 st.session_state['data'] = process_dataframe(save_df)
