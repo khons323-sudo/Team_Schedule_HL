@@ -387,8 +387,8 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
-    calculated_height = num_rows * 25 + 70
-    final_height = min(400, max(300, calculated_height))
+    calculated_height = num_rows * 30 + 70
+    final_height = min(400, max(400, calculated_height))
     
     # [수정] 차트 제목: Size 18, Bold, Black, 왼쪽 정렬, 아래 간격 20px
     # pad={'b': 20}과 margin-top(t=60)으로 도구와 날짜 간격(7px) 및 제목 간격 조정
