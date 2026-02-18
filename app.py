@@ -17,9 +17,15 @@ st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
 # CSS: 화면 및 인쇄 스타일링
 custom_css = """
 <style>
-    /* 메인 타이틀 & 서브헤더 */
-    .title-text { font-size: 1.8rem !important; font-weight: 700; color: #31333F; margin-bottom: 10px; }
-    .subheader-text { font-size: 1.2rem !important; font-weight: 600; color: #31333F; padding-top: 5px; }
+    /* 1. 메인 타이틀: 진한 회색 (#333333) 적용 */
+    .title-text { 
+        font-size: 1.8rem !important; 
+        font-weight: 700; 
+        color: #333333 !important; /* 진한 회색 */
+        margin-bottom: 10px; 
+    }
+    
+    .subheader-text { font-size: 1.2rem !important; font-weight: 600; color: #333333; padding-top: 5px; }
     
     /* 입력 폼 스타일 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
@@ -37,7 +43,7 @@ custom_css = """
 
         body, .stApp { 
             background-color: white !important; 
-            color: black !important;
+            color: #333333 !important; /* 글자는 검은색 80% (진한 회색) */
             zoom: 80%;
         }
         
@@ -52,9 +58,9 @@ custom_css = """
             width: 100% !important; 
         }
 
-        /* [요청사항 적용] 업무리스트 테이블 인쇄 스타일 */
+        /* 업무리스트 테이블 인쇄 스타일 */
         div[data-testid="stDataEditor"] table {
-            color: black !important;
+            color: #333333 !important; /* 글자 검은색 80% */
             background-color: white !important;
             font-size: 10px !important;
             border: 1px solid #000 !important;
@@ -62,20 +68,20 @@ custom_css = """
             width: 100% !important;
         }
         
-        /* [요청사항 적용] 제목(헤더) 행: 검은색 20% (#cccccc) 적용 */
+        /* 제목(헤더) 행: 검은색 20% 배경(#cccccc) */
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important; 
-            color: black !important;
+            color: #333333 !important; /* 헤더 글자도 80% 블랙 */
             border: 1px solid black !important;
             font-weight: bold !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
         
-        /* 내용 셀: 흰색 바탕, 검은 글씨 */
+        /* 내용 셀 */
         div[data-testid="stDataEditor"] td {
             background-color: white !important;
-            color: black !important;
+            color: #333333 !important; /* 내용 글자 80% 블랙 */
             border: 1px solid #ddd !important;
         }
         
@@ -88,7 +94,7 @@ st.markdown(custom_css, unsafe_allow_html=True)
 st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', unsafe_allow_html=True)
 
 # -----------------------------------------------------------------------------
-# 2. 유틸리티 함수 (작업일 계산 등)
+# 2. 유틸리티 함수
 # -----------------------------------------------------------------------------
 def get_business_days(start_date, end_date):
     """시작일과 종료일 사이의 평일(주말 제외) 수 계산"""
@@ -137,7 +143,6 @@ def process_dataframe(df):
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
     df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
     
-    # 작업기간 자동 계산 (데이터 무결성)
     df["작업기간"] = df.apply(
         lambda x: get_business_days(x["시작일"], x["종료일"]) if pd.notna(x["시작일"]) and pd.notna(x["종료일"]) else 0, 
         axis=1
@@ -190,8 +195,6 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # [수정] 컬럼 너비 비율 조정: 텍스트 30% / 차트 70%
-    # 합계: 0.10 + 0.05 + 0.05 + 0.10 = 0.30 (30%)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
@@ -203,6 +206,8 @@ if not chart_data.empty:
 
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
+    
+    # [스타일] 차트 내 모든 텍스트: 완전한 검은색 (#000000)
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=11), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
@@ -238,7 +243,7 @@ if not chart_data.empty:
 
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
-        tickfont=dict(size=10, color="black"),
+        tickfont=dict(size=10, color="black"), 
         gridcolor='rgba(0,0,0,0.1)', dtick="D1", tickformat="%b %d\n(%a)",
         row=1, col=5
     )
@@ -247,16 +252,27 @@ if not chart_data.empty:
 
     shapes = [dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(0,0,0,0.1)", width=1)) for i in range(num_rows + 1)]
     
+    # [수정] 레이아웃 여백 및 제목 위치 조정 (버튼과 이격)
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        margin=dict(l=10, r=10, t=60, b=10),
-        title={'text': "Project Schedule", 'y': 0.95, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 'pad': dict(b=15)},
+        # [중요] Top margin(t)을 100으로 늘려 제목/버튼과 차트 헤더 사이 간격 확보
+        margin=dict(l=10, r=10, t=100, b=10),
+        title={
+            'text': "Project Schedule", 
+            'y': 0.98, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 
+            # [중요] Title의 bottom padding을 늘려 아래 요소와 거리 두기
+            'pad': dict(b=20),
+            'font': dict(color="black")
+        },
+        font=dict(color="black"),
         paper_bgcolor='white', plot_bgcolor='white',
         showlegend=False, shapes=shapes, dragmode="pan"
     )
     
-    # [수정] scrollZoom: False 적용 (휠 줌 비활성화)
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
+    fig.update_annotations(font_color="black")
+    
+    # [수정] displayModeBar=True (버튼 표시), scrollZoom=False (휠 무시)
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
     st.info("📅 표시할 일정이 없습니다.")
 
@@ -317,6 +333,7 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 conn.update(worksheet="Sheet1", data=save_data)
                 load_data_from_sheet.clear()
+                st.session_state['data'] = process_dataframe(save_df)
                 st.success("✅ 추가되었습니다!")
                 time.sleep(0.5)
                 st.rerun()
