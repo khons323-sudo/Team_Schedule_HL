@@ -4,7 +4,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import plotly.express as px
 from streamlit_gsheets import GSheetsConnection
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import time
 import textwrap
 import numpy as np
@@ -17,7 +17,7 @@ try:
 except ImportError:
     kr_holidays = {}
 
-# [중요] 한국 시간(KST) 설정 (타임존 정보 제거하여 순수 날짜/시간만 사용)
+# 한국 시간(KST) 설정
 KST = pytz.timezone('Asia/Seoul')
 
 def get_now_kst():
@@ -31,75 +31,40 @@ st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide")
 
 custom_css = """
 <style>
-    /* 메인 타이틀 */
     .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
-    
-    /* 입력 폼 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
 
-    /* 업무리스트 테이블 헤더 스타일 (14px, Bold, Black) */
     div[data-testid="stDataEditor"] th {
         background-color: #cccccc !important; 
         color: black !important;
         font-size: 14px !important;
-        font-weight: 700 !important; /* Bold */
+        font-weight: 700 !important;
         border: 1px solid black !important;
     }
-    
-    /* 업무리스트 테이블 내용 */
-    div[data-testid="stDataEditor"] td {
-        font-size: 12px !important;
-    }
+    div[data-testid="stDataEditor"] td { font-size: 12px !important; }
 
-    /* [중요] 인쇄 모드 스타일 */
     @media print {
-        header, footer, aside, 
-        [data-testid="stSidebar"], [data-testid="stToolbar"], 
+        header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         div[data-testid="stVerticalBlockBorderWrapper"], button,
         .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle
         { display: none !important; }
 
-        body, .stApp { 
-            background-color: white !important; 
-            color: rgba(0, 0, 0, 0.8) !important; 
-            zoom: 80%;
-        }
+        body, .stApp { background-color: white !important; color: rgba(0, 0, 0, 0.8) !important; zoom: 80%; }
+        .main .block-container { max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important; }
+        div[data-testid="stDataEditor"], .js-plotly-plot { break-inside: avoid !important; margin-bottom: 20px !important; width: 100% !important; }
         
-        .main .block-container { 
-            max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important; 
-        }
-
-        div[data-testid="stDataEditor"], .js-plotly-plot { 
-            break-inside: avoid !important; 
-            margin-bottom: 20px !important; 
-            width: 100% !important; 
-        }
-
-        /* 인쇄 시 테이블 스타일 강제 */
         div[data-testid="stDataEditor"] table {
-            color: rgba(0, 0, 0, 0.8) !important;
-            background-color: white !important;
-            border: 1px solid #000 !important;
-            border-collapse: collapse !important;
-            width: 100% !important;
+            color: rgba(0, 0, 0, 0.8) !important; background-color: white !important; border: 1px solid #000 !important; border-collapse: collapse !important; width: 100% !important;
         }
         div[data-testid="stDataEditor"] th {
-            background-color: #cccccc !important; 
-            color: black !important;
-            font-size: 14px !important;
-            font-weight: bold !important;
-            -webkit-print-color-adjust: exact !important;
-            print-color-adjust: exact !important;
+            background-color: #cccccc !important; color: black !important; font-size: 14px !important; font-weight: bold !important; -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important;
         }
         div[data-testid="stDataEditor"] td {
-            background-color: white !important;
-            color: rgba(0, 0, 0, 0.8) !important;
-            border: 1px solid #ddd !important;
+            background-color: white !important; color: rgba(0, 0, 0, 0.8) !important; border: 1px solid #ddd !important;
         }
-        
         @page { size: landscape; margin: 0.5cm; }
     }
 </style>
@@ -121,6 +86,10 @@ def get_business_days(start_date, end_date):
     s = pd.to_datetime(start_date)
     e = pd.to_datetime(end_date)
     if s > e: return 0
+    
+    # [안전장치] 날짜 차이가 너무 크면(5년 이상) 0 반환 (무한루프 방지)
+    if (e - s).days > 1825: return 0
+    
     count = 0
     curr = s
     while curr <= e:
@@ -133,9 +102,13 @@ def add_business_days(start_date, days):
     curr = pd.to_datetime(start_date)
     added = 0
     target_days = int(days) - 1
-    while added < target_days:
+    
+    # [안전장치] 루프 제한 (최대 1000일)
+    loop_limit = 0
+    while added < target_days and loop_limit < 1000:
         curr += timedelta(days=1)
         if not is_holiday(curr): added += 1
+        loop_limit += 1
     return curr
 
 # -----------------------------------------------------------------------------
@@ -159,11 +132,9 @@ def process_dataframe(df):
         for col in required_cols:
             if col not in df.columns: df[col] = ""
 
-    # 날짜 파싱
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
     
-    # 오늘 날짜 기준 (Naive KST)
     now_kst = get_now_kst()
     today_naive = pd.to_datetime(now_kst.date())
     
@@ -192,7 +163,6 @@ if 'data' not in st.session_state:
 
 data = st.session_state['data'].copy()
 
-# 전역 today 변수 (Naive KST)
 now_kst = get_now_kst()
 today = pd.to_datetime(now_kst.date())
 
@@ -275,10 +245,8 @@ if not chart_data.empty:
         start_date = row["시작일"]
         end_date = row["종료일"]
         
-        # [수정] Bar 기간 1일 추가 (종료일 포함)
-        # (종료일 - 시작일 + 1일)을 초 단위로 계산 후 밀리초로 변환
+        # 종료일 포함하여 1일 추가 계산
         duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
-        
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
@@ -297,22 +265,31 @@ if not chart_data.empty:
         ), row=1, col=5)
 
     # -------------------------------------------------------------------------
-    # 스크롤 최적화를 위한 날짜 범위 계산
+    # [중요] 렌더링 범위 제한 (무한 로딩 방지)
     # -------------------------------------------------------------------------
     view_start_initial = today - timedelta(days=5)
     view_end_initial = today + timedelta(days=20)
 
-    # 앞뒤 6개월 계산
+    # 기본 계산 범위: 오늘 기준 앞뒤 6개월
     calc_start = today - timedelta(days=180)
     calc_end = today + timedelta(days=180)
     
+    # 데이터 범위가 더 넓을 경우 확장하되, 최대 1년으로 제한 (안전장치)
     if not chart_data.empty:
         min_date = chart_data["시작일"].min()
         max_date = chart_data["종료일"].max()
-        calc_start = min(calc_start, min_date - timedelta(days=30))
-        calc_end = max(calc_end, max_date + timedelta(days=30))
+        
+        # 데이터가 NaT가 아니고 유효할 때만
+        if pd.notna(min_date) and pd.notna(max_date):
+            # 오늘 기준 최대 365일까지만 허용 (데이터 오타 방지)
+            limit_min = today - timedelta(days=365)
+            limit_max = today + timedelta(days=365)
+            
+            # 실제 데이터 범위와 제한 범위 중 안전한 쪽 선택
+            calc_start = max(min(calc_start, min_date - timedelta(days=30)), limit_min)
+            calc_end = min(max(calc_end, max_date + timedelta(days=30)), limit_max)
 
-    # 배경색 로직 (15% 투명도 적용)
+    # 배경색 설정
     if is_dark_mode and not force_print_theme:
         holiday_fill_color = "rgba(255, 255, 255, 0.15)"
         holiday_text_color = "rgba(255, 255, 255, 0.4)"
@@ -320,7 +297,7 @@ if not chart_data.empty:
         holiday_fill_color = "rgba(0, 0, 0, 0.15)"
         holiday_text_color = "rgba(0, 0, 0, 0.4)"
 
-    # 1. 가로선 (Row 구분)
+    # 가로선
     for i in range(num_rows + 1):
         fig.add_shape(
             type="line", xref="paper", yref="y", x0=0, x1=1, 
@@ -332,15 +309,17 @@ if not chart_data.empty:
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
+    # [루프 안전장치] 최대 루프 횟수 제한 (혹시 모를 무한루프 방지)
+    max_loops = 2000 
+    loop_count = 0
+    
     curr_check = calc_start
-    while curr_check <= calc_end:
-        # [수정] 날짜 텍스트 위치 12시간 오프셋 적용 (칸 중앙에 표시)
-        tick_vals.append(curr_check + timedelta(hours=12))
-        
+    while curr_check <= calc_end and loop_count < max_loops:
+        tick_vals.append(curr_check + timedelta(hours=12)) # 12시간 오프셋 (중앙 정렬)
         korean_day = day_map[curr_check.strftime('%a')]
         formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
-        # [수정] 세로선 (수평선과 같은 색, 파선) - 00:00 기준 유지
+        # 세로선 (파선)
         fig.add_shape(
             type="line",
             xref="x", yref="y",
@@ -353,17 +332,13 @@ if not chart_data.empty:
 
         is_hol = is_holiday(curr_check)
         if is_hol:
-            # X축 글자 색상 (휴일)
             formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>" 
-            
-            # 휴일 배경색 적용
             fig.add_shape(
                 type="rect",
                 xref="x", yref="y", 
                 x0=curr_check, 
                 x1=curr_check + timedelta(days=1),
-                y0=-0.5, 
-                y1=num_rows - 0.5,
+                y0=-0.5, y1=num_rows - 0.5,
                 fillcolor=holiday_fill_color,
                 opacity=1,
                 layer="below", 
@@ -373,13 +348,13 @@ if not chart_data.empty:
 
         tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
+        loop_count += 1
 
     # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # 차트 영역 설정
     fig.update_xaxes(
         type="date", 
         range=[view_start_initial, view_end_initial], 
@@ -387,13 +362,11 @@ if not chart_data.empty:
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        # [수정] Native Grid 비활성화 (텍스트가 12시로 이동했으므로, 12시에 선이 생기는 것을 방지)
-        showgrid=False,
+        showgrid=False, # 수동 그리드를 사용하므로 끔
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # 붉은색 기준선(오늘)
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
@@ -427,8 +400,9 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-if 'new_start' not in st.session_state: st.session_state.new_start = get_now_kst()
-if 'new_end' not in st.session_state: st.session_state.new_end = get_now_kst()
+# [수정] st.date_input은 'date' 객체를 받으므로 .date() 변환 필수
+if 'new_start' not in st.session_state: st.session_state.new_start = get_now_kst().date()
+if 'new_end' not in st.session_state: st.session_state.new_end = get_now_kst().date()
 if 'new_days' not in st.session_state: st.session_state.new_days = 1
 
 def on_date_change():
@@ -437,7 +411,7 @@ def on_date_change():
 
 def on_days_change():
     s, d = st.session_state.new_start, st.session_state.new_days
-    if s and d > 0: st.session_state.new_end = add_business_days(s, d)
+    if s and d > 0: st.session_state.new_end = add_business_days(s, d).date()
 
 with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
     c1, c2 = st.columns(2)
