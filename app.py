@@ -403,11 +403,11 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
-    MAX_HEIGHT_ROWS = 15
+    MAX_HEIGHT_ROWS = 18
     effective_rows = min(num_rows, MAX_HEIGHT_ROWS)
     
     calculated_height = num_rows * 30 + 70
-    final_height = max(400, min(600, calculated_height))
+    final_height = max(400, min(610, calculated_height))
     
     fig.update_layout(
         height=final_height,
