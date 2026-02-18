@@ -31,12 +31,15 @@ st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide")
 
 custom_css = """
 <style>
+    /* 메인 타이틀 */
     .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
     
+    /* 입력 폼 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
 
+    /* 업무리스트 테이블 헤더 */
     div[data-testid="stDataEditor"] th {
         background-color: #cccccc !important; 
         color: black !important;
@@ -46,6 +49,7 @@ custom_css = """
     }
     div[data-testid="stDataEditor"] td { font-size: 12px !important; }
 
+    /* 인쇄 모드 스타일 */
     @media print {
         header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
@@ -72,39 +76,26 @@ st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', u
 # 2. 유틸리티 함수 (Numpy 최적화)
 # -----------------------------------------------------------------------------
 def is_holiday(date_obj):
-    """단일 날짜 휴일 여부 확인"""
     if date_obj.weekday() >= 5: return True
     if date_obj.strftime("%Y-%m-%d") in kr_holidays: return True
     return False
 
 def get_business_days(start_date, end_date):
-    """[최적화] Numpy busday_count 사용"""
     if pd.isna(start_date) or pd.isna(end_date): return 0
-    
-    # datetime64로 변환
     s = np.datetime64(start_date, 'D')
     e = np.datetime64(end_date, 'D')
-    
     if s > e: return 0
-    
-    # 휴일 목록을 numpy datetime64 배열로 변환
     holidays_list = list(kr_holidays.keys()) if kr_holidays else []
-    
-    # 종료일 포함 계산을 위해 e + 1일
     count = np.busday_count(s, e + 1, weekmask='1111100', holidays=holidays_list)
     return int(count)
 
 def add_business_days(start_date, days):
-    """[최적화] Numpy busday_offset 사용"""
     if pd.isna(start_date) or days <= 0: return start_date
-    
     s = np.datetime64(start_date, 'D')
     holidays_list = list(kr_holidays.keys()) if kr_holidays else []
-    
-    # roll='forward': 시작일이 휴일이면 다음 평일부터 계산
     try:
         target = np.busday_offset(s, int(days) - 1, roll='forward', weekmask='1111100', holidays=holidays_list)
-        return pd.to_datetime(target).date() # date 객체 반환
+        return pd.to_datetime(target).date()
     except:
         return start_date
 
@@ -141,7 +132,6 @@ def process_dataframe(df):
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
     df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
     
-    # apply 함수 내에서도 최적화된 get_business_days 사용
     df["작업기간"] = df.apply(
         lambda x: get_business_days(x["시작일"], x["종료일"]) if pd.notna(x["시작일"]) and pd.notna(x["종료일"]) else 0, 
         axis=1
@@ -241,6 +231,8 @@ if not chart_data.empty:
     for idx, row in chart_data.iterrows():
         start_date = row["시작일"]
         end_date = row["종료일"]
+        
+        # 종료일 포함하여 1일 추가 계산
         duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
@@ -260,19 +252,18 @@ if not chart_data.empty:
         ), row=1, col=5)
 
     # -------------------------------------------------------------------------
-    # [성능 최적화] 휴일 배경 그리기
+    # 렌더링 범위 제한
     # -------------------------------------------------------------------------
     view_start_initial = today - timedelta(days=5)
     view_end_initial = today + timedelta(days=20)
 
-    # 렌더링 범위 제한 (무한루프 방지)
+    # 루프는 휴일 계산을 위해서만 최소한으로 돕니다.
     calc_start = today - timedelta(days=180)
     calc_end = today + timedelta(days=180)
     
     if not chart_data.empty:
         min_date = chart_data["시작일"].min()
         max_date = chart_data["종료일"].max()
-        # 데이터가 너무 멀리 있어도 최대 ±1년까지만 렌더링
         if pd.notna(min_date) and pd.notna(max_date):
             safe_min = today - timedelta(days=365)
             safe_max = today + timedelta(days=365)
@@ -286,50 +277,70 @@ if not chart_data.empty:
         holiday_fill_color = "rgba(0, 0, 0, 0.15)"
         holiday_text_color = "rgba(0, 0, 0, 0.4)"
 
-    # 1. 가로선 (Row 구분) - 단 한 번의 루프로 처리
+    # 1. 가로선 (Row 구분)
     for i in range(num_rows + 1):
         fig.add_shape(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1))
 
-    # 2. 휴일 배경 그리기 (매일매일 선 긋기 X -> 휴일만 사각형 그리기 O)
+    tick_vals = []
+    tick_text = []
+    day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
+    
+    # 2. 휴일 배경 및 날짜 라벨 루프
+    # [최적화] 매일 세로선을 긋지 않습니다. (세로선은 Native Grid로 대체)
+    max_loops = 2000
+    loop_count = 0
     curr_check = calc_start
-    while curr_check <= calc_end:
-        if is_holiday(curr_check):
-            # 휴일 배경 (사각형)
+    
+    while curr_check <= calc_end and loop_count < max_loops:
+        tick_vals.append(curr_check + timedelta(hours=12)) # 12시간 오프셋 (중앙 정렬)
+        korean_day = day_map[curr_check.strftime('%a')]
+        formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
+        
+        is_hol = is_holiday(curr_check)
+        if is_hol:
+            formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>" 
+            # 휴일 배경만 그립니다.
             fig.add_shape(
-                type="rect", xref="x", yref="y", 
-                x0=curr_check, x1=curr_check + timedelta(days=1),
-                y0=-0.5, y1=num_rows - 0.5,
-                fillcolor=holiday_fill_color, opacity=1, layer="below", line_width=0,
+                type="rect",
+                xref="x", yref="y", 
+                x0=curr_check, 
+                x1=curr_check + timedelta(days=1),
+                y0=-0.5, 
+                y1=num_rows - 0.5,
+                fillcolor=holiday_fill_color,
+                opacity=1,
+                layer="below", 
+                line_width=0,
                 row=1, col=5 
             )
+
+        tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
+        loop_count += 1
 
     # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # [핵심 최적화] 차트 영역 설정 - Native Grid 사용
-    # ticklabelmode="period" : 그리드는 00:00에, 텍스트는 12:00(중앙)에 자동 배치됨 (Plotly 기능)
+    # [핵심] Native Grid 사용으로 성능 향상 및 세로선 구현
     fig.update_xaxes(
         type="date", 
         range=[view_start_initial, view_end_initial], 
         side="top",
         tickfont=dict(size=10, color=text_color),
-        tickformat="%m/%d<br>%a", # 2/19 (줄바꿈) 목
-        
-        # [중요] 성능 향상의 핵심: 수동 선 긋기 대신 Native Grid 사용
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        # Native Grid 켜기
         showgrid=True,
         gridcolor='rgba(128,128,128,0.2)',
         griddash='dash',
-        dtick="D1", # 1일 간격
-        ticklabelmode="period", # 라벨을 칸 중앙에, 그리드선은 칸 경계에 배치
-        
+        dtick="D1",
+        ticklabelmode="period", # 라벨은 중앙에, 그리드는 경계선에
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # 붉은색 기준선(오늘)
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
@@ -409,13 +420,16 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
             }])
             st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
             try:
+                # [수정] 변수명 오타 수정 save_df -> save_data
                 save_data = st.session_state['data'].copy()
                 if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 conn.update(worksheet="Sheet1", data=save_data)
+                
+                # [수정] process_dataframe 인자도 save_data로 수정
                 load_data_from_sheet.clear()
-                st.session_state['data'] = process_dataframe(save_df)
+                st.session_state['data'] = process_dataframe(save_data)
                 st.success("✅ 추가되었습니다!")
                 time.sleep(0.5)
                 st.rerun()
