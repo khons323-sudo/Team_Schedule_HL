@@ -31,7 +31,7 @@ custom_css = """
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
 
-    /* [수정] 업무리스트 테이블 헤더 스타일 (14px, Bold, Black) */
+    /* 업무리스트 테이블 헤더 스타일 (14px, Bold, Black) */
     div[data-testid="stDataEditor"] th {
         background-color: #cccccc !important; 
         color: black !important;
@@ -223,13 +223,12 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # [수정] 차트 제목 폰트 설정을 위해 subplot_titles에 HTML 태그 사용
+    # 서브타이틀: 크기 14, 검정색, Bold
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
         column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
-        # [수정] 서브타이틀: 크기 14, 검정색, Bold
         subplot_titles=(
             "<span style='font-size:14px; color:black; font-weight:bold'>프로젝트명</span>", 
             "<span style='font-size:14px; color:black; font-weight:bold'>구분</span>", 
@@ -280,7 +279,7 @@ if not chart_data.empty:
     view_start = today - timedelta(days=5)
     view_end = today + timedelta(days=20)
     
-    # [수정] 배경색 로직 (15% 투명도 적용)
+    # 배경색 로직 (15% 투명도 적용)
     if is_dark_mode and not force_print_theme:
         holiday_fill_color = "rgba(255, 255, 255, 0.15)" # 흰색 15%
     else:
@@ -318,7 +317,7 @@ if not chart_data.empty:
         is_hol = is_holiday(curr_check)
         if is_hol:
             # X축 글자 색상 (휴일)
-            formatted_date = f"<span style='color:{holiday_fill_color.replace('0.15', '0.4')}'>{formatted_date}</span>" # 글자는 좀 더 진하게
+            formatted_date = f"<span style='color:{holiday_fill_color.replace('0.15', '0.4')}'>{formatted_date}</span>" 
             
             # [수정] 휴일 배경색 적용 (모든 셀 커버, 15% 투명도)
             fig.add_shape(
@@ -348,8 +347,8 @@ if not chart_data.empty:
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        gridcolor='rgba(128,128,128,0.2)', # 기본 그리드는 유지하되 위에서 add_shape로 그렸으므로 겹칠 수 있음.
-        showgrid=False, # 수동으로 그렸으므로 기본 그리드 끔
+        gridcolor='rgba(128,128,128,0.2)', 
+        showgrid=False, 
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
@@ -360,7 +359,6 @@ if not chart_data.empty:
     # [수정] 레이아웃: 제목 간격 및 폰트 설정
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        # [수정] 툴바/제목과 날짜 사이 간격 5 적용을 위한 margin 조정 (Top margin 축소)
         margin=dict(l=10, r=10, t=60, b=10), 
         title={
             'text': "<b>Project Schedule</b>", # [수정] 제목 Bold
@@ -375,8 +373,6 @@ if not chart_data.empty:
         dragmode="pan"
     )
     
-    # 서브플롯 타이틀이 html 태그로 적용되었으므로 별도 폰트 업데이트 불필요
-    # 하지만 인쇄모드 등에서 확실히 하기 위해 annotation 루프
     if force_print_theme:
         for annotation in fig['layout']['annotations']:
             annotation['font']['color'] = "black"
