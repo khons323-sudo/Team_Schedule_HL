@@ -25,13 +25,6 @@ def get_now_kst():
     """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환"""
     return datetime.now(KST).replace(tzinfo=None)
 
-def to_naive_kst(dt):
-    """입력된 datetime이 타임존을 가지고 있다면 한국 시간으로 변환 후 타임존 제거"""
-    if dt is None: return None
-    if dt.tzinfo is not None:
-        return dt.astimezone(KST).replace(tzinfo=None)
-    return dt
-
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
 # -----------------------------------------------------------------------------
@@ -471,6 +464,7 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
                 if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
+                
                 conn.update(worksheet="Sheet1", data=save_data)
                 load_data_from_sheet.clear()
                 st.session_state['data'] = process_dataframe(save_df)
