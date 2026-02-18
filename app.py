@@ -25,12 +25,25 @@ custom_css = """
 <style>
     /* 메인 타이틀 */
     .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
-    .subheader-text { font-size: 1.2rem !important; font-weight: 600; color: #333333; padding-top: 5px; }
     
     /* 입력 폼 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
+
+    /* [수정] 업무리스트 테이블 헤더 스타일 (14px, Bold, Black) */
+    div[data-testid="stDataEditor"] th {
+        background-color: #cccccc !important; 
+        color: black !important;
+        font-size: 14px !important;
+        font-weight: 700 !important; /* Bold */
+        border: 1px solid black !important;
+    }
+    
+    /* 업무리스트 테이블 내용 */
+    div[data-testid="stDataEditor"] td {
+        font-size: 12px !important;
+    }
 
     /* [중요] 인쇄 모드 스타일 */
     @media print {
@@ -57,19 +70,19 @@ custom_css = """
             width: 100% !important; 
         }
 
-        /* 업무리스트 테이블 */
+        /* 인쇄 시 테이블 스타일 강제 */
         div[data-testid="stDataEditor"] table {
             color: rgba(0, 0, 0, 0.8) !important;
             background-color: white !important;
-            font-size: 10px !important;
             border: 1px solid #000 !important;
             border-collapse: collapse !important;
             width: 100% !important;
         }
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important; 
-            color: rgba(0, 0, 0, 0.8) !important;
-            border: 1px solid black !important;
+            color: black !important;
+            font-size: 14px !important;
+            font-weight: bold !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
@@ -189,13 +202,9 @@ else:
 
 chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
-# -----------------------------------------------------------------------------
-# [옵션] 사이드바 설정 (인쇄 모드 / 다크 모드)
-# -----------------------------------------------------------------------------
 with st.sidebar:
     st.markdown("### 🎨 보기 설정")
     force_print_theme = st.checkbox("🖨️ 인쇄용 테마 (배경 흰색)", value=False)
-    # 다크모드 여부는 Python에서 자동 감지가 어려우므로 사용자 선택 제공
     is_dark_mode = st.checkbox("🌙 다크 모드 최적화 (배경 어두움)", value=False)
 
 if not chart_data.empty:
@@ -214,12 +223,20 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
+    # [수정] 차트 제목 폰트 설정을 위해 subplot_titles에 HTML 태그 사용
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
         column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
-        subplot_titles=("<b>프로젝트명</b>", "<b>구분</b>", "<b>담당자</b>", "<b>Activity</b>", ""),
+        # [수정] 서브타이틀: 크기 14, 검정색, Bold
+        subplot_titles=(
+            "<span style='font-size:14px; color:black; font-weight:bold'>프로젝트명</span>", 
+            "<span style='font-size:14px; color:black; font-weight:bold'>구분</span>", 
+            "<span style='font-size:14px; color:black; font-weight:bold'>담당자</span>", 
+            "<span style='font-size:14px; color:black; font-weight:bold'>Activity</span>", 
+            ""
+        ),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
 
@@ -230,9 +247,9 @@ if not chart_data.empty:
     if force_print_theme:
         text_color = "black"
     elif is_dark_mode:
-        text_color = "white" # 다크모드에서는 흰 글씨
+        text_color = "white"
     else:
-        text_color = None # 시스템 기본
+        text_color = None
 
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=11), hoverinfo="skip")
 
@@ -263,19 +280,11 @@ if not chart_data.empty:
     view_start = today - timedelta(days=5)
     view_end = today + timedelta(days=20)
     
-    # -------------------------------------------------------------------------
-    # [수정] 배경색 로직 및 Shape 적용
-    # -------------------------------------------------------------------------
-    
-    # 휴일 배경색 결정 로직
-    # 1. 인쇄모드(흰배경) -> 검은색 30%
-    # 2. 다크모드(어두운배경) -> 흰색 30%
-    # 3. 그 외(일반 Light모드) -> 검은색 30%
-    
+    # [수정] 배경색 로직 (15% 투명도 적용)
     if is_dark_mode and not force_print_theme:
-        holiday_fill_color = "rgba(255, 255, 255, 0.3)" # 흰색 30%
+        holiday_fill_color = "rgba(255, 255, 255, 0.15)" # 흰색 15%
     else:
-        holiday_fill_color = "rgba(0, 0, 0, 0.3)" # 검은색 30%
+        holiday_fill_color = "rgba(0, 0, 0, 0.15)" # 검은색 15%
 
     # 1. 가로선 (Row 구분)
     for i in range(num_rows + 1):
@@ -295,14 +304,23 @@ if not chart_data.empty:
         korean_day = day_map[curr_check.strftime('%a')]
         formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
+        # [수정] 세로선 (수평선과 같은 색, 파선)
+        fig.add_shape(
+            type="line",
+            xref="x", yref="y",
+            x0=curr_check, x1=curr_check,
+            y0=-0.5, y1=num_rows - 0.5,
+            line=dict(color="rgba(128,128,128,0.2)", width=1, dash="dash"),
+            layer="below",
+            row=1, col=5
+        )
+
         is_hol = is_holiday(curr_check)
         if is_hol:
-            # X축 글자 색상 (휴일) - 배경색과 동일한 로직 적용
-            formatted_date = f"<span style='color:{holiday_fill_color}'>{formatted_date}</span>"
+            # X축 글자 색상 (휴일)
+            formatted_date = f"<span style='color:{holiday_fill_color.replace('0.15', '0.4')}'>{formatted_date}</span>" # 글자는 좀 더 진하게
             
-            # [수정] 휴일 배경색 적용 (모든 셀 커버)
-            # yref="y"를 사용하여 데이터 좌표계 사용 (행 높이에 맞춤)
-            # y0 = -0.5 (첫번째 행 위), y1 = num_rows - 0.5 (마지막 행 아래)
+            # [수정] 휴일 배경색 적용 (모든 셀 커버, 15% 투명도)
             fig.add_shape(
                 type="rect",
                 xref="x", yref="y", 
@@ -330,7 +348,8 @@ if not chart_data.empty:
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        gridcolor='rgba(128,128,128,0.2)',
+        gridcolor='rgba(128,128,128,0.2)', # 기본 그리드는 유지하되 위에서 add_shape로 그렸으므로 겹칠 수 있음.
+        showgrid=False, # 수동으로 그렸으므로 기본 그리드 끔
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
@@ -338,14 +357,16 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
+    # [수정] 레이아웃: 제목 간격 및 폰트 설정
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        margin=dict(l=10, r=10, t=100, b=10),
+        # [수정] 툴바/제목과 날짜 사이 간격 5 적용을 위한 margin 조정 (Top margin 축소)
+        margin=dict(l=10, r=10, t=60, b=10), 
         title={
-            'text': "Project Schedule", 
+            'text': "<b>Project Schedule</b>", # [수정] 제목 Bold
             'y': 0.98, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=20),
-            'font': dict(color=text_color)
+            'pad': dict(b=5), # [수정] 간격 5 적용
+            'font': dict(color=text_color, size=16) # [수정] 크기 16
         },
         font=dict(color=text_color),
         paper_bgcolor=layout_bg, 
@@ -354,9 +375,12 @@ if not chart_data.empty:
         dragmode="pan"
     )
     
+    # 서브플롯 타이틀이 html 태그로 적용되었으므로 별도 폰트 업데이트 불필요
+    # 하지만 인쇄모드 등에서 확실히 하기 위해 annotation 루프
     if force_print_theme:
-        fig.update_annotations(font_color="black")
-    
+        for annotation in fig['layout']['annotations']:
+            annotation['font']['color'] = "black"
+
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True}, theme="streamlit")
 else:
     st.info("📅 표시할 일정이 없습니다.")
