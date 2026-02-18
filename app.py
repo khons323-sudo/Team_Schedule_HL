@@ -9,10 +9,17 @@ import time
 import textwrap
 import numpy as np
 
+# 휴일 계산 라이브러리 (없을 경우 예외처리)
+try:
+    import holidays
+    kr_holidays = holidays.KR()
+except ImportError:
+    kr_holidays = {}
+
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
 # -----------------------------------------------------------------------------
-st.set_page_config(page_title="디자인1본부 일정관리", layout="wide")
+st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide")
 
 # CSS: 화면 및 인쇄 스타일링
 custom_css = """
@@ -21,7 +28,7 @@ custom_css = """
     .title-text { 
         font-size: 1.8rem !important; 
         font-weight: 700; 
-        color: #333333 !important; /* 진한 회색 */
+        color: #333333 !important; 
         margin-bottom: 10px; 
     }
     
@@ -43,7 +50,7 @@ custom_css = """
 
         body, .stApp { 
             background-color: white !important; 
-            color: #333333 !important; /* 글자는 검은색 80% (진한 회색) */
+            color: rgba(0, 0, 0, 0.8) !important; 
             zoom: 80%;
         }
         
@@ -51,7 +58,6 @@ custom_css = """
             max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important; 
         }
 
-        /* 차트 및 표 설정 */
         div[data-testid="stDataEditor"], .js-plotly-plot { 
             break-inside: avoid !important; 
             margin-bottom: 20px !important; 
@@ -60,7 +66,7 @@ custom_css = """
 
         /* 업무리스트 테이블 인쇄 스타일 */
         div[data-testid="stDataEditor"] table {
-            color: #333333 !important; /* 글자 검은색 80% */
+            color: rgba(0, 0, 0, 0.8) !important;
             background-color: white !important;
             font-size: 10px !important;
             border: 1px solid #000 !important;
@@ -68,20 +74,18 @@ custom_css = """
             width: 100% !important;
         }
         
-        /* 제목(헤더) 행: 검은색 20% 배경(#cccccc) */
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important; 
-            color: #333333 !important; /* 헤더 글자도 80% 블랙 */
+            color: rgba(0, 0, 0, 0.8) !important;
             border: 1px solid black !important;
             font-weight: bold !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
         
-        /* 내용 셀 */
         div[data-testid="stDataEditor"] td {
             background-color: white !important;
-            color: #333333 !important; /* 내용 글자 80% 블랙 */
+            color: rgba(0, 0, 0, 0.8) !important;
             border: 1px solid #ddd !important;
         }
         
@@ -96,20 +100,35 @@ st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', u
 # -----------------------------------------------------------------------------
 # 2. 유틸리티 함수
 # -----------------------------------------------------------------------------
+def is_holiday(date_obj):
+    """주말(토,일) 또는 공휴일 여부 확인"""
+    if date_obj.weekday() >= 5: return True
+    if date_obj.strftime("%Y-%m-%d") in kr_holidays: return True
+    return False
+
 def get_business_days(start_date, end_date):
-    """시작일과 종료일 사이의 평일(주말 제외) 수 계산"""
+    """시작일과 종료일 사이의 평일(주말/공휴일 제외) 수 계산"""
     if pd.isna(start_date) or pd.isna(end_date): return 0
-    s = pd.to_datetime(start_date).date()
-    e = pd.to_datetime(end_date).date()
+    s = pd.to_datetime(start_date)
+    e = pd.to_datetime(end_date)
     if s > e: return 0
-    return np.busday_count(s, e + timedelta(days=1))
+    count = 0
+    curr = s
+    while curr <= e:
+        if not is_holiday(curr): count += 1
+        curr += timedelta(days=1)
+    return count
 
 def add_business_days(start_date, days):
     """시작일에 평일 n일을 더한 날짜 반환"""
     if pd.isna(start_date) or days <= 0: return start_date
-    s = pd.to_datetime(start_date).date()
-    target_date = np.busday_offset(s, int(days) - 1, roll='forward')
-    return pd.to_datetime(target_date)
+    curr = pd.to_datetime(start_date)
+    added = 0
+    target_days = int(days) - 1
+    while added < target_days:
+        curr += timedelta(days=1)
+        if not is_holiday(curr): added += 1
+    return curr
 
 # -----------------------------------------------------------------------------
 # 3. 데이터 로드 및 전처리
@@ -119,8 +138,7 @@ conn = st.connection("gsheets", type=GSheetsConnection)
 @st.cache_data(ttl=60)
 def load_data_from_sheet():
     try:
-        df = conn.read(worksheet="Sheet1")
-        return df
+        return conn.read(worksheet="Sheet1")
     except Exception as e:
         st.error(f"구글 시트 연결 오류: {e}")
         return pd.DataFrame()
@@ -135,7 +153,6 @@ def process_dataframe(df):
 
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
-    
     today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
     df["남은기간"] = (df["종료일"] - today).dt.days.fillna(0).astype(int)
 
@@ -153,7 +170,6 @@ def process_dataframe(df):
         df["_original_id"] = range(len(df))
     else:
         df["_original_id"] = df["_original_id"].fillna(pd.Series(range(len(df))))
-        
     return df
 
 if 'data' not in st.session_state:
@@ -186,10 +202,26 @@ else:
 
 chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
+# 인쇄용 테마 적용 옵션
+force_print_theme = st.sidebar.checkbox("🖨️ 인쇄용 테마 적용 (Light Mode)", value=False)
+
 if not chart_data.empty:
-    chart_data["프로젝트명_표시"] = chart_data["프로젝트명"].apply(lambda x: wrap_labels(x, 12))
+    # [수정 1] 프로젝트명 오름차순 정렬 (2차 정렬: 시작일)
+    chart_data = chart_data.sort_values(by=["프로젝트명", "시작일"], ascending=[True, True]).reset_index(drop=True)
+    
+    # [수정 2] 동일 프로젝트명 숨기기 (첫번째만 표시)
+    proj_display_list = []
+    prev_proj = None
+    for proj in chart_data["프로젝트명"]:
+        if proj == prev_proj:
+            proj_display_list.append("") # 중복이면 빈칸
+        else:
+            proj_display_list.append(proj) # 새 프로젝트면 표시
+            prev_proj = proj
+    
+    # 래핑 적용
+    chart_data["프로젝트명_표시"] = [wrap_labels(p, 12) for p in proj_display_list]
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
-    chart_data = chart_data.sort_values(by=["시작일"], ascending=False).reset_index(drop=True)
     
     unique_members = chart_data["담당자"].unique()
     colors = px.colors.qualitative.Pastel
@@ -207,8 +239,8 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
     
-    # [스타일] 차트 내 모든 텍스트: 완전한 검은색 (#000000)
-    common_props = dict(mode="text", textposition="middle center", textfont=dict(color="black", size=11), hoverinfo="skip")
+    text_color = "black" if force_print_theme else None 
+    common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=11), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["구분"], **common_props), row=1, col=2)
@@ -237,42 +269,62 @@ if not chart_data.empty:
     view_start = today - timedelta(days=5)
     view_end = today + timedelta(days=20)
     
+    tick_vals = []
+    tick_text = []
+    day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
+    
+    curr_date = view_start
+    while curr_date <= view_end:
+        tick_vals.append(curr_date)
+        korean_day = day_map[curr_date.strftime('%a')]
+        formatted_date = f"{curr_date.month}/{curr_date.day} / {korean_day}"
+        
+        if is_holiday(curr_date):
+            formatted_date = f"<span style='color:rgba(0,0,0,0.3)'>{formatted_date}</span>"
+        
+        tick_text.append(formatted_date)
+        curr_date += timedelta(days=1)
+
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
-        fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
+        # [수정 3] Y축 반전 적용 (오름차순 정렬 시 상단부터 표시하기 위해)
+        fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
+    # 차트 영역 설정 (Y축 반전 포함)
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
-        tickfont=dict(size=10, color="black"), 
-        gridcolor='rgba(0,0,0,0.1)', dtick="D1", tickformat="%b %d\n(%a)",
+        tickfont=dict(size=10, color=text_color),
+        tickvals=tick_vals,
+        ticktext=tick_text,
+        gridcolor='rgba(128,128,128,0.2)',
         row=1, col=5
     )
-    fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, row=1, col=5)
+    fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     fig.add_vline(x=today.timestamp() * 1000, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
-    shapes = [dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(0,0,0,0.1)", width=1)) for i in range(num_rows + 1)]
+    shapes = [dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1)) for i in range(num_rows + 1)]
     
-    # [수정] 레이아웃 여백 및 제목 위치 조정 (버튼과 이격)
+    layout_bg = "white" if force_print_theme else None
+    
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        # [중요] Top margin(t)을 100으로 늘려 제목/버튼과 차트 헤더 사이 간격 확보
         margin=dict(l=10, r=10, t=100, b=10),
         title={
             'text': "Project Schedule", 
             'y': 0.98, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 
-            # [중요] Title의 bottom padding을 늘려 아래 요소와 거리 두기
             'pad': dict(b=20),
-            'font': dict(color="black")
+            'font': dict(color=text_color)
         },
-        font=dict(color="black"),
-        paper_bgcolor='white', plot_bgcolor='white',
+        font=dict(color=text_color),
+        paper_bgcolor=layout_bg, 
+        plot_bgcolor=layout_bg,
         showlegend=False, shapes=shapes, dragmode="pan"
     )
     
-    fig.update_annotations(font_color="black")
+    if force_print_theme:
+        fig.update_annotations(font_color="black")
     
-    # [수정] displayModeBar=True (버튼 표시), scrollZoom=False (휠 무시)
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True}, theme="streamlit")
 else:
     st.info("📅 표시할 일정이 없습니다.")
 
