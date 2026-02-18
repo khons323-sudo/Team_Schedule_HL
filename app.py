@@ -212,11 +212,16 @@ def process_dataframe(df):
     )
     df["진행상황"] = df["진행률"]
     
-    if "_original_id" not in df.columns or df["_original_id"].isnull().all():
+    # [오류 수정] _original_id 컬럼을 숫자로 강제 변환하여 TypeError 방지
+    df["_original_id"] = pd.to_numeric(df["_original_id"], errors='coerce')
+    
+    if df["_original_id"].isnull().all():
          df["_original_id"] = range(len(df))
     else:
         mask = df["_original_id"].isna()
-        start_id = df["_original_id"].max() + 1 if not df["_original_id"].dropna().empty else 0
+        # 숫자로 변환된 ID들 중 최대값 계산
+        valid_ids = df["_original_id"].dropna()
+        start_id = int(valid_ids.max()) + 1 if not valid_ids.empty else 0
         df.loc[mask, "_original_id"] = range(start_id, start_id + mask.sum())
 
     return df
