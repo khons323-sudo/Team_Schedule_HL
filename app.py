@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import time
 import textwrap
 import numpy as np
+import pytz # [수정] 타임존 처리를 위한 라이브러리
 
 # 휴일 계산 라이브러리
 try:
@@ -15,6 +16,9 @@ try:
     kr_holidays = holidays.KR()
 except ImportError:
     kr_holidays = {}
+
+# [수정] 한국 시간대(KST) 정의
+KST = pytz.timezone('Asia/Seoul')
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
@@ -153,8 +157,10 @@ def process_dataframe(df):
 
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
-    today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
-    df["남은기간"] = (df["종료일"] - today).dt.days.fillna(0).astype(int)
+    
+    # [수정] 남은기간 계산 시 KST 기준 '오늘 자정' 사용
+    today_kst = pd.to_datetime(datetime.now(KST).strftime("%Y-%m-%d"))
+    df["남은기간"] = (df["종료일"] - today_kst).dt.days.fillna(0).astype(int)
 
     if "진행률" in df.columns and df["진행률"].dtype == 'object':
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
@@ -178,7 +184,9 @@ if 'data' not in st.session_state:
     if 'show_completed' not in st.session_state: st.session_state['show_completed'] = False
 
 data = st.session_state['data'].copy()
-today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
+
+# [수정] 전역 'today' 변수도 KST 기준으로 고정
+today = pd.to_datetime(datetime.now(KST).strftime("%Y-%m-%d"))
 
 def get_unique_list(df, col_name):
     return sorted(df[col_name].astype(str).dropna().unique().tolist()) if col_name in df.columns else []
@@ -241,7 +249,6 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
     
-    # 텍스트 색상 결정
     if force_print_theme:
         text_color = "black"
     elif is_dark_mode:
@@ -276,19 +283,16 @@ if not chart_data.empty:
         ), row=1, col=5)
 
     # -------------------------------------------------------------------------
-    # [수정] 스크롤 최적화를 위한 날짜 범위 계산
+    # 스크롤 최적화를 위한 날짜 범위 계산
     # -------------------------------------------------------------------------
-    # 오늘 날짜 기준 표시 범위 (줌 초기값)
     view_start_initial = today - timedelta(days=5)
     view_end_initial = today + timedelta(days=20)
 
-    # 실제 계산 및 렌더링 범위 (앞뒤로 6개월씩 여유를 둠)
-    # 이렇게 해야 좌우 스크롤 시에도 글자와 배경이 보임
+    # 앞뒤 6개월 계산
     calc_start = today - timedelta(days=180)
     calc_end = today + timedelta(days=180)
     
     if not chart_data.empty:
-        # 데이터가 있는 범위가 더 넓다면 그 범위를 포함
         min_date = chart_data["시작일"].min()
         max_date = chart_data["종료일"].max()
         calc_start = min(calc_start, min_date - timedelta(days=30))
@@ -297,7 +301,7 @@ if not chart_data.empty:
     # 배경색 로직 (15% 투명도 적용)
     if is_dark_mode and not force_print_theme:
         holiday_fill_color = "rgba(255, 255, 255, 0.15)"
-        holiday_text_color = "rgba(255, 255, 255, 0.4)" # 글자는 좀 더 밝게
+        holiday_text_color = "rgba(255, 255, 255, 0.4)"
     else:
         holiday_fill_color = "rgba(0, 0, 0, 0.15)"
         holiday_text_color = "rgba(0, 0, 0, 0.4)"
@@ -314,7 +318,6 @@ if not chart_data.empty:
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
-    # 2. 날짜별 휴일 배경 및 텍스트 생성 (넓은 범위 계산)
     curr_check = calc_start
     while curr_check <= calc_end:
         tick_vals.append(curr_check)
@@ -352,21 +355,23 @@ if not chart_data.empty:
     # 차트 영역 설정
     fig.update_xaxes(
         type="date", 
-        # [중요] 초기 줌 범위 설정 (데이터는 넓게 있지만 처음엔 여기만 보여줌)
         range=[view_start_initial, view_end_initial], 
         side="top",
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        # [수정] 수평선과 같은 색상의 파선(Dash) 적용 (Plotly Native Grid 사용)
         showgrid=True,
         gridcolor='rgba(128,128,128,0.2)',
-        griddash='dash', # 파선 적용
-        dtick="D1", # 1일 간격 강제
+        griddash='dash',
+        dtick="D1",
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
-    fig.add_vline(x=today.timestamp() * 1000, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
+    
+    # [수정] 붉은색 기준선(오늘)에 KST 현재 시각 적용
+    # datetime.now(KST)를 timestamp로 변환하여 밀리초 단위로 변환
+    current_time_kst_ms = datetime.now(KST).timestamp() * 1000
+    fig.add_vline(x=current_time_kst_ms, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
     
@@ -399,8 +404,9 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-if 'new_start' not in st.session_state: st.session_state.new_start = datetime.today()
-if 'new_end' not in st.session_state: st.session_state.new_end = datetime.today()
+# [수정] 입력 폼 날짜 기본값도 KST 오늘로 설정
+if 'new_start' not in st.session_state: st.session_state.new_start = datetime.now(KST)
+if 'new_end' not in st.session_state: st.session_state.new_end = datetime.now(KST)
 if 'new_days' not in st.session_state: st.session_state.new_days = 1
 
 def on_date_change():
