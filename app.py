@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 import textwrap
 import numpy as np
-import pytz # [수정] 타임존 처리를 위한 라이브러리
+import pytz
 
 # 휴일 계산 라이브러리
 try:
@@ -17,8 +17,20 @@ try:
 except ImportError:
     kr_holidays = {}
 
-# [수정] 한국 시간대(KST) 정의
+# [중요] 한국 시간(KST) 설정 및 Naive 변환 함수
+# 타임존 정보를 제거(replace(tzinfo=None))하여 라이브러리 간 자동 변환으로 인한 9시간 오차 방지
 KST = pytz.timezone('Asia/Seoul')
+
+def get_now_kst():
+    """현재 한국 시간을 구하되, 타임존 정보를 제거하여 반환"""
+    return datetime.now(KST).replace(tzinfo=None)
+
+def to_naive_kst(dt):
+    """입력된 datetime이 타임존을 가지고 있다면 한국 시간으로 변환 후 타임존 제거"""
+    if dt is None: return None
+    if dt.tzinfo is not None:
+        return dt.astimezone(KST).replace(tzinfo=None)
+    return dt
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
@@ -155,12 +167,15 @@ def process_dataframe(df):
         for col in required_cols:
             if col not in df.columns: df[col] = ""
 
+    # 날짜 파싱 (Naive Datetime으로 자동 변환됨)
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
     
-    # [수정] 남은기간 계산 시 KST 기준 '오늘 자정' 사용
-    today_kst = pd.to_datetime(datetime.now(KST).strftime("%Y-%m-%d"))
-    df["남은기간"] = (df["종료일"] - today_kst).dt.days.fillna(0).astype(int)
+    # [수정] 오늘 날짜 기준도 Naive KST로 통일
+    now_kst = get_now_kst()
+    today_naive = pd.to_datetime(now_kst.date())
+    
+    df["남은기간"] = (df["종료일"] - today_naive).dt.days.fillna(0).astype(int)
 
     if "진행률" in df.columns and df["진행률"].dtype == 'object':
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
@@ -185,8 +200,9 @@ if 'data' not in st.session_state:
 
 data = st.session_state['data'].copy()
 
-# [수정] 전역 'today' 변수도 KST 기준으로 고정
-today = pd.to_datetime(datetime.now(KST).strftime("%Y-%m-%d"))
+# [수정] 전역 today 변수: 시간 정보가 없는 순수 날짜 (Naive)
+now_kst = get_now_kst()
+today = pd.to_datetime(now_kst.date())
 
 def get_unique_list(df, col_name):
     return sorted(df[col_name].astype(str).dropna().unique().tolist()) if col_name in df.columns else []
@@ -368,10 +384,10 @@ if not chart_data.empty:
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # [수정] 붉은색 기준선(오늘)에 KST 현재 시각 적용
-    # datetime.now(KST)를 timestamp로 변환하여 밀리초 단위로 변환
-    current_time_kst_ms = datetime.now(KST).timestamp() * 1000
-    fig.add_vline(x=current_time_kst_ms, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
+    # [수정] 붉은색 기준선(오늘) 좌표 보정
+    # 타임스탬프 변환 없이, Naive KST datetime 객체를 직접 x값으로 사용
+    # Plotly는 이를 차트 기준 시간으로 정확히 매핑함
+    fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
     
@@ -404,9 +420,9 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# [수정] 입력 폼 날짜 기본값도 KST 오늘로 설정
-if 'new_start' not in st.session_state: st.session_state.new_start = datetime.now(KST)
-if 'new_end' not in st.session_state: st.session_state.new_end = datetime.now(KST)
+# [수정] 입력 폼 날짜 기본값도 Naive KST 오늘로 설정
+if 'new_start' not in st.session_state: st.session_state.new_start = get_now_kst()
+if 'new_end' not in st.session_state: st.session_state.new_end = get_now_kst()
 if 'new_days' not in st.session_state: st.session_state.new_days = 1
 
 def on_date_change():
