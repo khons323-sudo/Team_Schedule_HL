@@ -9,7 +9,7 @@ import time
 import textwrap
 import numpy as np
 
-# 휴일 계산 라이브러리 (없을 경우 예외처리)
+# 휴일 계산 라이브러리
 try:
     import holidays
     kr_holidays = holidays.KR()
@@ -21,20 +21,13 @@ except ImportError:
 # -----------------------------------------------------------------------------
 st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide")
 
-# CSS: 화면 및 인쇄 스타일링
 custom_css = """
 <style>
-    /* 1. 메인 타이틀: 진한 회색 (#333333) 적용 */
-    .title-text { 
-        font-size: 1.8rem !important; 
-        font-weight: 700; 
-        color: #333333 !important; 
-        margin-bottom: 10px; 
-    }
-    
+    /* 메인 타이틀 */
+    .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
     .subheader-text { font-size: 1.2rem !important; font-weight: 600; color: #333333; padding-top: 5px; }
     
-    /* 입력 폼 스타일 */
+    /* 입력 폼 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
@@ -64,7 +57,7 @@ custom_css = """
             width: 100% !important; 
         }
 
-        /* 업무리스트 테이블 인쇄 스타일 */
+        /* 업무리스트 테이블 */
         div[data-testid="stDataEditor"] table {
             color: rgba(0, 0, 0, 0.8) !important;
             background-color: white !important;
@@ -73,16 +66,13 @@ custom_css = """
             border-collapse: collapse !important;
             width: 100% !important;
         }
-        
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important; 
             color: rgba(0, 0, 0, 0.8) !important;
             border: 1px solid black !important;
-            font-weight: bold !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
-        
         div[data-testid="stDataEditor"] td {
             background-color: white !important;
             color: rgba(0, 0, 0, 0.8) !important;
@@ -101,13 +91,11 @@ st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', u
 # 2. 유틸리티 함수
 # -----------------------------------------------------------------------------
 def is_holiday(date_obj):
-    """주말(토,일) 또는 공휴일 여부 확인"""
     if date_obj.weekday() >= 5: return True
     if date_obj.strftime("%Y-%m-%d") in kr_holidays: return True
     return False
 
 def get_business_days(start_date, end_date):
-    """시작일과 종료일 사이의 평일(주말/공휴일 제외) 수 계산"""
     if pd.isna(start_date) or pd.isna(end_date): return 0
     s = pd.to_datetime(start_date)
     e = pd.to_datetime(end_date)
@@ -120,7 +108,6 @@ def get_business_days(start_date, end_date):
     return count
 
 def add_business_days(start_date, days):
-    """시작일에 평일 n일을 더한 날짜 반환"""
     if pd.isna(start_date) or days <= 0: return start_date
     curr = pd.to_datetime(start_date)
     added = 0
@@ -202,22 +189,23 @@ else:
 
 chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 
-# 인쇄용 테마 적용 옵션
-force_print_theme = st.sidebar.checkbox("🖨️ 인쇄용 테마 적용 (Light Mode)", value=False)
+# -----------------------------------------------------------------------------
+# [옵션] 사이드바 설정 (인쇄 모드 / 다크 모드)
+# -----------------------------------------------------------------------------
+with st.sidebar:
+    st.markdown("### 🎨 보기 설정")
+    force_print_theme = st.checkbox("🖨️ 인쇄용 테마 (배경 흰색)", value=False)
+    # 다크모드 여부는 Python에서 자동 감지가 어려우므로 사용자 선택 제공
+    is_dark_mode = st.checkbox("🌙 다크 모드 최적화 (배경 어두움)", value=False)
 
 if not chart_data.empty:
-    # 프로젝트명 오름차순 정렬 (2차 정렬: 시작일)
     chart_data = chart_data.sort_values(by=["프로젝트명", "시작일"], ascending=[True, True]).reset_index(drop=True)
     
-    # 동일 프로젝트명 숨기기
     proj_display_list = []
     prev_proj = None
     for proj in chart_data["프로젝트명"]:
-        if proj == prev_proj:
-            proj_display_list.append("") 
-        else:
-            proj_display_list.append(proj) 
-            prev_proj = proj
+        if proj == prev_proj: proj_display_list.append("") 
+        else: proj_display_list.append(proj); prev_proj = proj
     
     chart_data["프로젝트명_표시"] = [wrap_labels(p, 12) for p in proj_display_list]
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
@@ -238,7 +226,14 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
     
-    text_color = "black" if force_print_theme else None 
+    # 텍스트 색상 결정
+    if force_print_theme:
+        text_color = "black"
+    elif is_dark_mode:
+        text_color = "white" # 다크모드에서는 흰 글씨
+    else:
+        text_color = None # 시스템 기본
+
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=11), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
@@ -268,56 +263,63 @@ if not chart_data.empty:
     view_start = today - timedelta(days=5)
     view_end = today + timedelta(days=20)
     
-    tick_vals = []
-    tick_text = []
-    day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
-    
     # -------------------------------------------------------------------------
-    # [수정] Shapes 추가 방식을 fig.add_shape()로 변경 (에러 해결)
+    # [수정] 배경색 로직 및 Shape 적용
     # -------------------------------------------------------------------------
     
-   # 1. 가로선 (Row 구분) - 전체 영역(paper) 기준이므로 row/col 불필요
+    # 휴일 배경색 결정 로직
+    # 1. 인쇄모드(흰배경) -> 검은색 30%
+    # 2. 다크모드(어두운배경) -> 흰색 30%
+    # 3. 그 외(일반 Light모드) -> 검은색 30%
+    
+    if is_dark_mode and not force_print_theme:
+        holiday_fill_color = "rgba(255, 255, 255, 0.3)" # 흰색 30%
+    else:
+        holiday_fill_color = "rgba(0, 0, 0, 0.3)" # 검은색 30%
+
+    # 1. 가로선 (Row 구분)
     for i in range(num_rows + 1):
         fig.add_shape(
-            type="line", 
-            xref="paper", yref="y", 
-            x0=0, x1=1, 
+            type="line", xref="paper", yref="y", x0=0, x1=1, 
             y0=i-0.5, y1=i-0.5, 
             line=dict(color="rgba(128,128,128,0.2)", width=1)
         )
 
-    # 2. 세로선 (휴일 배경) 및 X축 라벨 생성
+    tick_vals = []
+    tick_text = []
+    day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
+    
     curr_check = view_start
     while curr_check <= view_end:
-        # X축 라벨 생성
         tick_vals.append(curr_check)
         korean_day = day_map[curr_check.strftime('%a')]
         formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
         is_hol = is_holiday(curr_check)
         if is_hol:
-            # X축 글자 색상 (휴일)
-            formatted_date = f"<span style='color:rgba(0,0,0,0.3)'>{formatted_date}</span>"
+            # X축 글자 색상 (휴일) - 배경색과 동일한 로직 적용
+            formatted_date = f"<span style='color:{holiday_fill_color}'>{formatted_date}</span>"
             
-            # [수정] 휴일 배경색 (검은색 30%) - add_shape 사용
+            # [수정] 휴일 배경색 적용 (모든 셀 커버)
+            # yref="y"를 사용하여 데이터 좌표계 사용 (행 높이에 맞춤)
+            # y0 = -0.5 (첫번째 행 위), y1 = num_rows - 0.5 (마지막 행 아래)
             fig.add_shape(
                 type="rect",
-                # x축은 데이터 좌표(날짜), y축은 paper 좌표(0~1, 전체 높이)
+                xref="x", yref="y", 
                 x0=curr_check, 
                 x1=curr_check + timedelta(days=1),
-                y0=0, y1=1, 
-                yref="paper",
-                fillcolor="rgba(0, 0, 0, 0.3)", 
+                y0=-0.5, 
+                y1=num_rows - 0.5,
+                fillcolor=holiday_fill_color,
                 opacity=1,
                 layer="below", 
                 line_width=0,
-                row=1, col=5  # add_shape에서는 row, col 사용 가능
+                row=1, col=5 
             )
 
         tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
 
-    # 축 설정 (이전과 동일)
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
@@ -336,7 +338,6 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
-    # [수정] shapes=shapes 파라미터 삭제 (이미 add_shape로 추가됨)
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
         margin=dict(l=10, r=10, t=100, b=10),
