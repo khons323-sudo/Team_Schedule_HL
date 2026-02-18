@@ -27,21 +27,20 @@ def get_now_kst():
 st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide", page_icon="📅")
 
 # -----------------------------------------------------------------------------
-# 2. CSS 스타일링 (폰트 크기 및 인쇄 레이아웃 강제 통일)
+# 2. CSS 스타일링 (인쇄 너비 및 레이아웃 최적화)
 # -----------------------------------------------------------------------------
-# [중요] 글자 크기 변수 (Plotly와 CSS 통일용)
-FONT_SIZE_TITLE = 18  # 메인 타이틀
-FONT_SIZE_TEXT = 10   # 일반 텍스트 (차트내용, 테이블내용, 헤더)
-FONT_SIZE_DATE = 8    # 날짜 축
+FONT_SIZE_TITLE = 18
+FONT_SIZE_TEXT = 10
+FONT_SIZE_DATE = 8
 
 custom_css = f"""
 <style>
-    /* 전체 폰트 강제 통일 (차트와 테이블 이질감 제거) */
+    /* 전체 폰트 강제 통일 */
     html, body, [class*="css"] {{
         font-family: 'Arial', 'AppleGothic', 'Malgun Gothic', sans-serif !important;
     }}
 
-    /* 메인 타이틀 (화면용, 인쇄시는 숨김) */
+    /* 메인 타이틀 (화면용) */
     .title-text {{ font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }}
     
     /* 입력 폼 UI 조정 */
@@ -49,29 +48,27 @@ custom_css = f"""
     div[data-testid="stForm"] .stTextInput {{ margin-top: 0px !important; }}
     .sort-label {{ font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }}
     
-    /* [화면/인쇄 공통] 업무리스트 테이블 스타일 */
-    /* 헤더: Bold, Size 10 */
+    /* [화면/인쇄 공통] 테이블 스타일 */
     div[data-testid="stDataEditor"] th {{
         background-color: #f0f2f6 !important; 
         color: #000000 !important;
         font-size: {FONT_SIZE_TEXT}pt !important;
-        font-weight: 700 !important; /* Bold */
+        font-weight: 700 !important;
         vertical-align: middle !important;
         text-align: center !important;
         border: 1px solid #e0e0e0 !important;
     }}
-    /* 내용: Normal, Size 10 */
     div[data-testid="stDataEditor"] td {{
         font-size: {FONT_SIZE_TEXT}pt !important;
         color: #000000 !important;
-        font-weight: 400 !important; /* Normal */
+        font-weight: 400 !important;
         vertical-align: middle !important;
         border-bottom: 1px solid #e0e0e0 !important;
     }}
 
-    /* 🖨️ 인쇄 모드 스타일 (보고서 형식 최적화) */
+    /* 🖨️ 인쇄 모드 스타일 (너비 맞춤 최적화) */
     @media print {{
-        /* 1. 화면 요소 숨김 */
+        /* 1. 불필요한 요소 숨김 */
         header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         button, .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle, 
@@ -80,40 +77,54 @@ custom_css = f"""
         .title-text 
         {{ display: none !important; }}
 
-        /* 2. 페이지 설정 */
-        @page {{ size: landscape; margin: 1cm; }}
-        body, .stApp {{ 
-            background-color: white !important; 
-            color: black !important; 
-            /* 줌을 사용하지 않고 폰트 크기로 제어하여 선명도 유지 */
+        /* 2. 페이지 설정: auto로 설정하여 가로/세로 출력 모두 대응 */
+        @page {{ 
+            size: auto;   /* 가로/세로 방향 자동 감지 */
+            margin: 10mm; /* 용지 여백 통일 */
         }}
         
-        /* 3. 레이아웃: 너비 100% 강제 */
+        body {{ 
+            background-color: white !important; 
+            color: black !important;
+            margin: 0 !important;
+            padding: 0 !important;
+        }}
+        
+        /* 3. Streamlit 메인 컨테이너 너비 강제 확장 (핵심) */
         .main .block-container {{ 
-            max-width: 100% !important; 
+            max-width: 100vw !important; /* 뷰포트 너비 100% */
             width: 100% !important; 
             padding: 0 !important; 
             margin: 0 !important; 
         }}
         
+        /* 4. 블록 간격 제거 */
         div[data-testid="stVerticalBlock"] {{ gap: 0 !important; }}
 
-        /* 4. 차트와 테이블 사이 간격 15pt */
-        div[data-testid="stPlotlyChart"] {{
-            margin-bottom: 15pt !important;
+        /* 5. 차트와 테이블의 부모 컨테이너 너비 100% 강제 일치 */
+        div[data-testid="stPlotlyChart"],
+        div[data-testid="stDataEditor"] {{
             width: 100% !important;
+            max-width: 100% !important;
+            margin-left: 0 !important;
+            margin-right: 0 !important;
+            padding: 0 !important;
+            display: block !important; /* flex 등으로 인한 축소 방지 */
         }}
 
-        /* 5. 업무리스트 테이블 보고서 형식화 */
-        div[data-testid="stDataEditor"] {{
-            margin-top: 0 !important; 
-            width: 100% !important;
+        /* 차트 하단 간격 */
+        div[data-testid="stPlotlyChart"] {{
+            margin-bottom: 15pt !important;
         }}
+
+        /* 6. 테이블 내부 너비 100% 및 스타일 */
         div[data-testid="stDataEditor"] table {{ 
             width: 100% !important;
+            table-layout: fixed !important; /* 열 너비 균등 분배 혹은 100% 맞춤에 유리 */
             border-collapse: collapse !important;
-            border: 2px solid #000 !important; /* 외곽선 진하게 */
+            border: 2px solid #000 !important;
         }}
+        
         div[data-testid="stDataEditor"] th {{
             background-color: #eeeeee !important;
             border: 1px solid #000 !important;
@@ -123,11 +134,15 @@ custom_css = f"""
             border: 1px solid #000 !important;
         }}
 
-        /* [요청사항] 업무리스트 맨 왼쪽 열(Index/프로젝트명) 숨김 */
-        /* Streamlit 테이블 구조상 첫번째 th/td를 숨김 */
+        /* 업무리스트 1열(Index) 숨김 */
         div[data-testid="stDataEditor"] table th:first-child,
         div[data-testid="stDataEditor"] table td:first-child {{
             display: none !important;
+        }}
+        
+        /* Plotly SVG 내부도 반응형으로 늘어남 */
+        .js-plotly-plot, .plot-container {{
+            width: 100% !important;
         }}
     }}
 </style>
@@ -258,9 +273,6 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # [수정] 테이블 헤더: Size 10, Bold, Black (CSS와 동일)
-    # Plotly에서 'pt'단위 대응을 위해 대략 1.33배의 px값을 쓰거나, 정직하게 10을 쓰되 폰트패밀리를 맞춤.
-    # 여기서는 'size=10'을 명시적으로 사용.
     header_style = f"font-size:{FONT_SIZE_TEXT}pt; color:black; font-family:Arial"
     
     fig = make_subplots(
@@ -281,7 +293,6 @@ if not chart_data.empty:
     num_rows = len(chart_data)
     y_axis = list(range(num_rows))
     
-    # [수정] 차트 내부 텍스트: Size 10, Normal, Black
     common_props = dict(
         mode="text", 
         textposition="middle center", 
@@ -311,7 +322,6 @@ if not chart_data.empty:
             hoverinfo="text",
             hovertext=f"<b>{row['프로젝트명']}</b><br>{row['Activity']}<br>{row['시작일'].strftime('%Y-%m-%d')} ~ {row['종료일'].strftime('%Y-%m-%d')}<br>작업일: {work_days}일",
             text=bar_text, textposition='inside', insidetextanchor='middle',
-            # [수정] Bar 텍스트: Size 10
             textfont=dict(color='black', size=FONT_SIZE_TEXT, family="Arial"),
             showlegend=False
         ), row=1, col=5)
@@ -325,7 +335,6 @@ if not chart_data.empty:
         calc_start = min(calc_start, chart_data["시작일"].min() - timedelta(days=10))
         calc_end = max(calc_end, chart_data["종료일"].max() + timedelta(days=10))
 
-    # [수정] 휴일 색상 (검정 50% opacity)
     holiday_fill_color = "rgba(0, 0, 0, 0.05)"
     holiday_text_color = "rgba(0, 0, 0, 0.5)" 
     grid_color = "rgba(128, 128, 128, 0.2)"
@@ -353,7 +362,6 @@ if not chart_data.empty:
         formatted_date = f"{curr_check.month}/{curr_check.day}<br>{korean_day}"
         
         if is_holiday(curr_check):
-            # [수정] 휴일 텍스트 검정 50%
             formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>"
             fig.add_shape(
                 type="rect", xref="x", yref="y", 
@@ -369,7 +377,6 @@ if not chart_data.empty:
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # [수정] 날짜 축: Size 8, Black, Normal
     fig.update_xaxes(
         type="date", 
         range=[view_start, view_end], 
@@ -390,15 +397,13 @@ if not chart_data.empty:
     calculated_height = num_rows * 30 + 70
     final_height = min(400, max(400, calculated_height))
     
-    # [수정] 차트 제목: Size 18, Bold, Black, 왼쪽 정렬, 아래 간격 20px
-    # pad={'b': 20}과 margin-top(t=60)으로 도구와 날짜 간격(7px) 및 제목 간격 조정
     fig.update_layout(
         height=final_height,
         margin=dict(l=10, r=10, t=60, b=10), 
         title={
             'text': f"<b>HL Design 1DV 1Team Project Schedule</b>",
             'y': 0.99, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=20), # 제목 아래 간격 20
+            'pad': dict(b=20), 
             'font': dict(color="black", size=FONT_SIZE_TITLE, family="Arial")
         },
         font=dict(color="black", family="Arial"),
