@@ -6,7 +6,7 @@ from plotly.subplots import make_subplots
 from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
-import textwrap 
+import textwrap
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
