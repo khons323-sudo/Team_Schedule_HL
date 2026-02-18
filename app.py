@@ -484,10 +484,37 @@ if st.button("💾 변경사항 저장하기", type="primary", use_container_wid
     try:
         with st.spinner("저장 중..."):
             master_df = st.session_state['data'].copy()
+            
+            # ---------------------------------------------------------
+            # [추가됨] 1. 삭제된 행 처리 로직
+            # ---------------------------------------------------------
+            # 편집기(edited_df)에 표시되었어야 할 원본 ID 목록 (필터링된 상태 기준)
+            # 주의: editor_df는 data_editor 위에 선언된 변수여야 함
+            original_visible_ids = set(editor_df["_original_id"].dropna().tolist())
+            
+            # 편집 후 남은 ID 목록
+            remaining_ids = set(edited_df["_original_id"].dropna().tolist())
+            
+            # 화면에는 있었는데(visible), 편집 후 사라진(remaining X) ID 찾기
+            deleted_ids = original_visible_ids - remaining_ids
+            
+            # 마스터 데이터에서 삭제된 ID 제거
+            if deleted_ids:
+                master_df = master_df[~master_df["_original_id"].isin(deleted_ids)]
+
+            # ---------------------------------------------------------
+            # 2. 수정된 내용 업데이트 (기존 로직)
+            # ---------------------------------------------------------
             if "_original_id" in master_df.columns:
                 master_df.set_index("_original_id", inplace=True)
+                
+                # 수정된 데이터 중 기존 ID가 있는 것만 추출
                 updates = edited_df.dropna(subset=["_original_id"]).set_index("_original_id")
                 
+                # 공통된 인덱스에 대해 내용 업데이트
+                # (삭제된 행은 위에서 이미 master_df에서 제거되었으므로 업데이트 대상 아님)
+                
+                # 날짜/기간 상호 연산 로직 (기존 유지)
                 common_ids = updates.index.intersection(master_df.index)
                 for idx in common_ids:
                     old_row = master_df.loc[idx]
@@ -501,21 +528,29 @@ if st.button("💾 변경사항 저장하기", type="primary", use_container_wid
                 master_df.update(updates)
                 master_df.reset_index(inplace=True)
                 
+                # ---------------------------------------------------------
+                # 3. 새 행 추가 (기존 로직)
+                # ---------------------------------------------------------
                 new_rows = edited_df[edited_df["_original_id"].isna() | (edited_df["_original_id"] == "")]
                 if not new_rows.empty:
                     new_rows = new_rows.drop(columns=["_original_id"], errors='ignore')
                     new_rows["작업기간"] = new_rows.apply(lambda x: get_business_days(x["시작일"], x["종료일"]), axis=1)
                     master_df = pd.concat([master_df, new_rows], ignore_index=True)
 
-                save_df = master_df.copy()
-                if "_original_id" in save_df.columns: save_df.drop(columns=["_original_id"], inplace=True)
-                save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
-                save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
+                # ---------------------------------------------------------
+                # 4. 구글 시트 저장 및 초기화
+                # ---------------------------------------------------------
+                save_data = master_df.copy()
+                if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
                 
-                conn.update(worksheet="Sheet1", data=save_df)
+                # 날짜 포맷팅 (NaT 방지)
+                save_data["시작일"] = pd.to_datetime(save_data["시작일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
+                save_data["종료일"] = pd.to_datetime(save_data["종료일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
+                
+                conn.update(worksheet="Sheet1", data=save_data)
                 load_data_from_sheet.clear()
-                st.session_state['data'] = process_dataframe(save_df)
-                st.success("✅ 저장되었습니다.")
-                time.sleep(1)
+                st.session_state['data'] = process_dataframe(save_data)
+                st.success("✅ 저장되었습니다. (삭제 반영됨)")
+                time.sleep(0.5)
                 st.rerun()
-    except Exception as e: st.error(f"오류: {e}")
+    except Exception as e: st.error(f"저장 실패: {e}")
