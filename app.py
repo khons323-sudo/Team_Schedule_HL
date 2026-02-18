@@ -7,7 +7,7 @@ from streamlit_gsheets import GSheetsConnection
 from datetime import datetime, timedelta
 import time
 import textwrap
-import numpy as np # 작업일 계산을 위해 추가
+import numpy as np
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 설정 및 디자인 CSS
@@ -38,7 +38,7 @@ custom_css = """
         body, .stApp { 
             background-color: white !important; 
             color: black !important;
-            zoom: 80%; /* 인쇄 시 축소 */
+            zoom: 80%;
         }
         
         .main .block-container { 
@@ -52,22 +52,27 @@ custom_css = """
             width: 100% !important; 
         }
 
-        /* 표 인쇄 스타일 강제 적용 */
+        /* [요청사항 적용] 업무리스트 테이블 인쇄 스타일 */
         div[data-testid="stDataEditor"] table {
             color: black !important;
+            background-color: white !important;
             font-size: 10px !important;
             border: 1px solid #000 !important;
             border-collapse: collapse !important;
+            width: 100% !important;
         }
-        /* 헤더: 검은색 20% (회색) */
+        
+        /* [요청사항 적용] 제목(헤더) 행: 검은색 20% (#cccccc) 적용 */
         div[data-testid="stDataEditor"] th {
             background-color: #cccccc !important; 
             color: black !important;
             border: 1px solid black !important;
+            font-weight: bold !important;
             -webkit-print-color-adjust: exact !important;
             print-color-adjust: exact !important;
         }
-        /* 내용: 흰 바탕 검은 글씨 */
+        
+        /* 내용 셀: 흰색 바탕, 검은 글씨 */
         div[data-testid="stDataEditor"] td {
             background-color: white !important;
             color: black !important;
@@ -86,19 +91,17 @@ st.markdown('<div class="title-text">📅 디자인1본부 1팀 일정</div>', u
 # 2. 유틸리티 함수 (작업일 계산 등)
 # -----------------------------------------------------------------------------
 def get_business_days(start_date, end_date):
-    """시작일과 종료일 사이의 평일(주말 제외) 수 계산 (inclusive)"""
+    """시작일과 종료일 사이의 평일(주말 제외) 수 계산"""
     if pd.isna(start_date) or pd.isna(end_date): return 0
     s = pd.to_datetime(start_date).date()
     e = pd.to_datetime(end_date).date()
     if s > e: return 0
-    # busday_count는 종료일 미포함이므로 +1일 처리하여 계산
     return np.busday_count(s, e + timedelta(days=1))
 
 def add_business_days(start_date, days):
     """시작일에 평일 n일을 더한 날짜 반환"""
     if pd.isna(start_date) or days <= 0: return start_date
     s = pd.to_datetime(start_date).date()
-    # 1일 작업이면 당일 종료 (days-1)
     target_date = np.busday_offset(s, int(days) - 1, roll='forward')
     return pd.to_datetime(target_date)
 
@@ -118,13 +121,11 @@ def load_data_from_sheet():
 
 def process_dataframe(df):
     required_cols = ["프로젝트명", "구분", "담당자", "Activity", "작업기간", "시작일", "종료일", "진행률"]
-    
     if df.empty:
         df = pd.DataFrame(columns=required_cols)
     else:
         for col in required_cols:
-            if col not in df.columns:
-                df[col] = ""
+            if col not in df.columns: df[col] = ""
 
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
@@ -136,13 +137,11 @@ def process_dataframe(df):
         df["진행률"] = df["진행률"].astype(str).str.replace('%', '')
     df["진행률"] = pd.to_numeric(df["진행률"], errors='coerce').fillna(0).astype(int)
     
-    # 작업기간(평일) 자동 계산 (데이터 무결성 유지)
-    # 기존에 값이 없거나 0이면 날짜 기준으로 계산
+    # 작업기간 자동 계산 (데이터 무결성)
     df["작업기간"] = df.apply(
         lambda x: get_business_days(x["시작일"], x["종료일"]) if pd.notna(x["시작일"]) and pd.notna(x["종료일"]) else 0, 
         axis=1
     )
-    
     df["진행상황"] = df["진행률"]
     
     if "_original_id" not in df.columns:
@@ -155,13 +154,11 @@ def process_dataframe(df):
 if 'data' not in st.session_state:
     raw_data = load_data_from_sheet()
     st.session_state['data'] = process_dataframe(raw_data)
-    # 초기 세션 설정
     if 'show_completed' not in st.session_state: st.session_state['show_completed'] = False
 
 data = st.session_state['data'].copy()
 today = pd.to_datetime(datetime.today().strftime("%Y-%m-%d"))
 
-# 드롭다운 리스트
 def get_unique_list(df, col_name):
     return sorted(df[col_name].astype(str).dropna().unique().tolist()) if col_name in df.columns else []
 
@@ -193,11 +190,13 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
+    # [수정] 컬럼 너비 비율 조정: 텍스트 30% / 차트 70%
+    # 합계: 0.10 + 0.05 + 0.05 + 0.10 = 0.30 (30%)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
-        column_widths=[0.15, 0.08, 0.08, 0.12, 0.57], 
+        column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
         subplot_titles=("<b>프로젝트명</b>", "<b>구분</b>", "<b>담당자</b>", "<b>Activity</b>", ""),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
     )
@@ -211,13 +210,10 @@ if not chart_data.empty:
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["담당자"], **common_props), row=1, col=3)
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["Activity_표시"], **common_props), row=1, col=4)
 
-    # 간트 바 차트
     for idx, row in chart_data.iterrows():
         start_ms = row["시작일"].timestamp() * 1000
         end_ms = row["종료일"].timestamp() * 1000
         duration_ms = end_ms - start_ms
-        
-        # [수정] Bar 텍스트: 휴일 제외 작업일수 사용
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
@@ -240,13 +236,10 @@ if not chart_data.empty:
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
 
-    # [수정] 날짜 형식 변경 (Feb 18 \n (Wed))
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
         tickfont=dict(size=10, color="black"),
-        gridcolor='rgba(0,0,0,0.1)', 
-        dtick="D1", 
-        tickformat="%b %d\n(%a)", # 월 일 (줄바꿈) 요일
+        gridcolor='rgba(0,0,0,0.1)', dtick="D1", tickformat="%b %d\n(%a)",
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, row=1, col=5)
@@ -254,50 +247,37 @@ if not chart_data.empty:
 
     shapes = [dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(0,0,0,0.1)", width=1)) for i in range(num_rows + 1)]
     
-    # [수정] 제목 패딩 추가 (간격 15 확보)
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
-        margin=dict(l=10, r=10, t=60, b=10), # Top margin increased
-        title={
-            'text': "Project Schedule",
-            'y': 0.95, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top',
-            'pad': dict(b=15) # Title padding
-        },
+        margin=dict(l=10, r=10, t=60, b=10),
+        title={'text': "Project Schedule", 'y': 0.95, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 'pad': dict(b=15)},
         paper_bgcolor='white', plot_bgcolor='white',
         showlegend=False, shapes=shapes, dragmode="pan"
     )
     
-    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': True, 'displayModeBar': False})
+    # [수정] scrollZoom: False 적용 (휠 줌 비활성화)
+    st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': False})
 else:
     st.info("📅 표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션] 상호 연산 시스템 적용
+# 5. [입력 섹션]
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
-# 입력값 상태 관리 (상호 연산을 위해)
 if 'new_start' not in st.session_state: st.session_state.new_start = datetime.today()
 if 'new_end' not in st.session_state: st.session_state.new_end = datetime.today()
 if 'new_days' not in st.session_state: st.session_state.new_days = 1
 
-# 콜백 함수: 날짜/기간 변경 시 상호 계산
 def on_date_change():
-    # 시작일, 종료일 변경 -> 기간 재계산
-    s = st.session_state.new_start
-    e = st.session_state.new_end
-    if s and e:
-        st.session_state.new_days = get_business_days(s, e)
+    s, e = st.session_state.new_start, st.session_state.new_end
+    if s and e: st.session_state.new_days = get_business_days(s, e)
 
 def on_days_change():
-    # 기간 변경 -> 종료일 재계산 (시작일 고정)
-    s = st.session_state.new_start
-    d = st.session_state.new_days
-    if s and d > 0:
-        st.session_state.new_end = add_business_days(s, d)
+    s, d = st.session_state.new_start, st.session_state.new_days
+    if s and d > 0: st.session_state.new_end = add_business_days(s, d)
 
 with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
-    # 폼 대신 직접 입력 위젯 사용 (실시간 연동을 위해)
     c1, c2 = st.columns(2)
     c3, c4, c5 = st.columns([1, 1, 1])
 
@@ -306,22 +286,14 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
         if new_proj == "➕ 직접 입력": new_proj = st.text_input("└ 프로젝트명 입력")
         new_item = st.selectbox("2. 구분", ["선택하세요"] + items_list + ["➕ 직접 입력"])
         if new_item == "➕ 직접 입력": new_item = st.text_input("└ 구분 입력")
-
     with c2:
         new_member = st.selectbox("3. 담당자", ["선택하세요"] + members_list + ["➕ 직접 입력"])
         if new_member == "➕ 직접 입력": new_member = st.text_input("└ 담당자 입력")
         new_act = st.selectbox("4. Activity", ["선택하세요"] + activity_list + ["➕ 직접 입력"])
         if new_act == "➕ 직접 입력": new_act = st.text_input("└ Activity 입력")
-
-    with c3:
-        # 5. 시작일
-        st.date_input("5. 시작일", key="new_start", on_change=on_date_change)
-    with c4:
-        # [추가] 6. 작업기간 (상호 연산)
-        st.number_input("6. 작업기간(일)", min_value=1, value=1, key="new_days", on_change=on_days_change)
-    with c5:
-        # 7. 종료일
-        st.date_input("7. 종료일", key="new_end", on_change=on_date_change)
+    with c3: st.date_input("5. 시작일", key="new_start", on_change=on_date_change)
+    with c4: st.number_input("6. 작업기간(일)", min_value=1, value=1, key="new_days", on_change=on_days_change)
+    with c5: st.date_input("7. 종료일", key="new_end", on_change=on_date_change)
 
     if st.button("저장", type="primary", use_container_width=True):
         if not new_proj or new_proj == "선택하세요":
@@ -338,20 +310,17 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
                 "_original_id": len(st.session_state['data']) + 9999
             }])
             st.session_state['data'] = pd.concat([st.session_state['data'], new_row], ignore_index=True)
-            
             try:
                 save_data = st.session_state['data'].copy()
                 if "_original_id" in save_data.columns: save_data.drop(columns=["_original_id"], inplace=True)
                 save_data["시작일"] = save_data["시작일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
                 save_data["종료일"] = save_data["종료일"].dt.strftime("%Y-%m-%d").replace("NaT", "")
-                
                 conn.update(worksheet="Sheet1", data=save_data)
                 load_data_from_sheet.clear()
                 st.success("✅ 추가되었습니다!")
                 time.sleep(0.5)
                 st.rerun()
-            except Exception as e:
-                st.error(f"저장 실패: {e}")
+            except Exception as e: st.error(f"저장 실패: {e}")
 
 # -----------------------------------------------------------------------------
 # 6. 데이터 에디터 및 저장
@@ -373,7 +342,6 @@ editor_df = st.session_state['data'].copy()
 if not st.session_state['show_completed']: editor_df = editor_df[editor_df["진행률"] < 100]
 editor_df = editor_df.sort_values(by=sort_col, ascending=sort_asc)
 
-# [수정] Activity 우측에 작업기간 추가
 display_cols = ["프로젝트명", "구분", "담당자", "Activity", "작업기간", "시작일", "종료일", "남은기간", "진행률", "진행상황", "_original_id"]
 
 edited_df = st.data_editor(
@@ -407,35 +375,27 @@ if st.button("💾 변경사항 저장하기", type="primary", use_container_wid
                 master_df.set_index("_original_id", inplace=True)
                 updates = edited_df.dropna(subset=["_original_id"]).set_index("_original_id")
                 
-                # [로직] 에디터에서 '작업기간'만 수정한 경우 종료일 업데이트
-                # 변경된 행을 감지하여 기간 재계산
                 common_ids = updates.index.intersection(master_df.index)
                 for idx in common_ids:
                     old_row = master_df.loc[idx]
                     new_row = updates.loc[idx]
-                    
-                    # 작업기간이 변경되었고 날짜는 그대로인 경우 -> 종료일 업데이트
                     if new_row["작업기간"] != old_row["작업기간"]:
                         new_end_date = add_business_days(new_row["시작일"], new_row["작업기간"])
                         updates.at[idx, "종료일"] = new_end_date
-                    # 종료일이나 시작일이 변경된 경우 -> 작업기간 업데이트
                     elif (new_row["시작일"] != old_row["시작일"]) or (new_row["종료일"] != old_row["종료일"]):
                         updates.at[idx, "작업기간"] = get_business_days(new_row["시작일"], new_row["종료일"])
 
                 master_df.update(updates)
                 master_df.reset_index(inplace=True)
                 
-                # 새 행 추가
                 new_rows = edited_df[edited_df["_original_id"].isna() | (edited_df["_original_id"] == "")]
                 if not new_rows.empty:
                     new_rows = new_rows.drop(columns=["_original_id"], errors='ignore')
-                    # 새 행도 기간 계산
                     new_rows["작업기간"] = new_rows.apply(lambda x: get_business_days(x["시작일"], x["종료일"]), axis=1)
                     master_df = pd.concat([master_df, new_rows], ignore_index=True)
 
                 save_df = master_df.copy()
                 if "_original_id" in save_df.columns: save_df.drop(columns=["_original_id"], inplace=True)
-                
                 save_df["시작일"] = pd.to_datetime(save_df["시작일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
                 save_df["종료일"] = pd.to_datetime(save_df["종료일"]).dt.strftime("%Y-%m-%d").replace("NaT", "")
                 
@@ -445,5 +405,4 @@ if st.button("💾 변경사항 저장하기", type="primary", use_container_wid
                 st.success("✅ 저장되었습니다.")
                 time.sleep(1)
                 st.rerun()
-    except Exception as e:
-        st.error(f"오류: {e}")
+    except Exception as e: st.error(f"오류: {e}")
