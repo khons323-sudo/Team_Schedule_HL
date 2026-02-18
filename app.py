@@ -273,15 +273,20 @@ if not chart_data.empty:
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
     # -------------------------------------------------------------------------
-    # [수정] Shapes: 가로선(Row 구분) + 세로선(휴일 배경) 추가
+    # [수정] Shapes 추가 방식을 fig.add_shape()로 변경 (에러 해결)
     # -------------------------------------------------------------------------
-    shapes = []
     
-    # 1. 가로선 (Row 구분)
+   # 1. 가로선 (Row 구분) - 전체 영역(paper) 기준이므로 row/col 불필요
     for i in range(num_rows + 1):
-        shapes.append(dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1)))
+        fig.add_shape(
+            type="line", 
+            xref="paper", yref="y", 
+            x0=0, x1=1, 
+            y0=i-0.5, y1=i-0.5, 
+            line=dict(color="rgba(128,128,128,0.2)", width=1)
+        )
 
-    # 2. 세로선 (휴일 배경 - 검은색 30% 적용)
+    # 2. 세로선 (휴일 배경) 및 X축 라벨 생성
     curr_check = view_start
     while curr_check <= view_end:
         # X축 라벨 생성
@@ -294,23 +299,25 @@ if not chart_data.empty:
             # X축 글자 색상 (휴일)
             formatted_date = f"<span style='color:rgba(0,0,0,0.3)'>{formatted_date}</span>"
             
-            # [추가] 휴일 배경색 (검은색 30%)
-            shapes.append(dict(
+            # [수정] 휴일 배경색 (검은색 30%) - add_shape 사용
+            fig.add_shape(
                 type="rect",
-                xref="x", yref="paper", # yref를 paper로 하여 차트 높이 전체 커버
-                x0=curr_check, # 해당 날짜 00:00
-                x1=curr_check + timedelta(days=1), # 다음날 00:00
-                y0=0, y1=1,
-                fillcolor="rgba(0, 0, 0, 0.3)", # 검은색 30%
-                opacity=1, # fillcolor에서 alpha값 제어하므로 opacity는 1
-                layer="below", # Bar보다 뒤에 위치
+                # x축은 데이터 좌표(날짜), y축은 paper 좌표(0~1, 전체 높이)
+                x0=curr_check, 
+                x1=curr_check + timedelta(days=1),
+                y0=0, y1=1, 
+                yref="paper",
+                fillcolor="rgba(0, 0, 0, 0.3)", 
+                opacity=1,
+                layer="below", 
                 line_width=0,
-                row=1, col=5
-            ))
+                row=1, col=5  # add_shape에서는 row, col 사용 가능
+            )
 
         tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
 
+    # 축 설정 (이전과 동일)
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
@@ -329,6 +336,7 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
+    # [수정] shapes=shapes 파라미터 삭제 (이미 add_shape로 추가됨)
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
         margin=dict(l=10, r=10, t=100, b=10),
@@ -341,7 +349,8 @@ if not chart_data.empty:
         font=dict(color=text_color),
         paper_bgcolor=layout_bg, 
         plot_bgcolor=layout_bg,
-        showlegend=False, shapes=shapes, dragmode="pan"
+        showlegend=False, 
+        dragmode="pan"
     )
     
     if force_print_theme:
