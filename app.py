@@ -39,11 +39,11 @@ custom_css = """
     div[data-testid="stDataEditor"] th {
         background-color: #f0f2f6 !important; 
         color: #000000 !important;
-        font-size: 12px !important; /* 요청: 12pt */
-        font-weight: 700 !important; /* 요청: Bold */
+        font-size: 10px !important; /* 요청: 12pt -> 10pt 변경 */
+        font-weight: 700 !important; /* Bold 유지 */
     }
     div[data-testid="stDataEditor"] td {
-        font-size: 10px !important; /* 요청: 10pt */
+        font-size: 10px !important; /* 요청: 10pt 유지 */
         color: #000000 !important;
     }
 
@@ -55,7 +55,7 @@ custom_css = """
         button, .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle, 
         .stTextInput, .stNumberInput, .stDateInput,
         div[data-testid="stVerticalBlockBorderWrapper"],
-        .title-text /* 메인 타이틀 숨김 추가 */
+        .title-text
         { display: none !important; }
 
         /* 2. 배경 및 폰트 설정 */
@@ -87,7 +87,7 @@ custom_css = """
             width: 100% !important; 
         }
         
-        /* [요청사항] 업무리스트 좌측열(Index) 숨기기 */
+        /* 업무리스트 좌측열(Index) 숨기기 */
         div[data-testid="stDataEditor"] table th:first-child,
         div[data-testid="stDataEditor"] table td:first-child {
             display: none !important;
@@ -226,17 +226,17 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # [수정] 테이블 제목 스타일 (12pt, Bold, Black)
+    # [수정] 테이블 제목 스타일 (12pt -> 10pt 변경, Bold 유지)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
         column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
         subplot_titles=(
-            "<b><span style='font-size:12px; color:black'>프로젝트명</span></b>", 
-            "<b><span style='font-size:12px; color:black'>구분</span></b>", 
-            "<b><span style='font-size:12px; color:black'>담당자</span></b>", 
-            "<b><span style='font-size:12px; color:black'>Activity</span></b>", 
+            "<b><span style='font-size:10px; color:black'>프로젝트명</span></b>", 
+            "<b><span style='font-size:10px; color:black'>구분</span></b>", 
+            "<b><span style='font-size:10px; color:black'>담당자</span></b>", 
+            "<b><span style='font-size:10px; color:black'>Activity</span></b>", 
             ""
         ),
         specs=[[{"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "scatter"}, {"type": "xy"}]]
@@ -313,7 +313,6 @@ if not chart_data.empty:
         formatted_date = f"{curr_check.month}/{curr_check.day}<br>{korean_day}"
         
         if is_holiday(curr_check):
-            # [수정] 휴일 텍스트 색상 적용
             formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>"
             fig.add_shape(
                 type="rect", xref="x", yref="y", 
@@ -329,7 +328,7 @@ if not chart_data.empty:
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # [수정] 날짜 축 폰트 (8pt, Black)
+    # [수정] 날짜 축 폰트 (8pt, Black) - 크기 8 유지
     fig.update_xaxes(
         type="date", 
         range=[view_start, view_end], 
@@ -350,14 +349,14 @@ if not chart_data.empty:
     calculated_height = num_rows * 25 + 70
     final_height = min(400, max(300, calculated_height))
     
-    # [수정] 차트 제목 변경, 폰트 18pt/Bold, 왼쪽 정렬, 하단 간격 20px
+    # [수정] 차트 메인 타이틀은 18pt 유지 (문서의 제목이므로 10pt는 너무 작음)
     fig.update_layout(
         height=final_height,
         margin=dict(l=10, r=10, t=60, b=10), 
         title={
             'text': "<b>HL Design 1DV 1Team Project Schedule</b>",
             'y': 0.99, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=20), # [수정] 아래 간격 20
+            'pad': dict(b=20),
             'font': dict(color="black", size=18)
         },
         font=dict(color="black"),
@@ -366,10 +365,6 @@ if not chart_data.empty:
         showlegend=False, 
         dragmode="pan"
     )
-    
-    # 툴과 날짜 간격은 margin-top과 title position의 조합으로 자연스럽게 형성되나, 
-    # 명시적인 7px 조절은 Plotly 구조상 title_pad나 margin으로 제어됩니다.
-    # 위 설정(t=60, pad=20)이 제목 아래 여유공간을 확보해줍니다.
 
     st.plotly_chart(fig, use_container_width=True, config={'scrollZoom': False, 'displayModeBar': True})
 else:
