@@ -29,24 +29,68 @@ st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide", pag
 custom_css = """
 <style>
     .title-text { font-size: 1.8rem !important; font-weight: 700; color: #333333 !important; margin-bottom: 10px; }
+    
+    /* 입력 폼 간격 조정 */
     div[data-testid="stForm"] .stSelectbox { margin-bottom: -15px !important; }
     div[data-testid="stForm"] .stTextInput { margin-top: 0px !important; }
     .sort-label { font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }
+    
+    /* 테이블 헤더 스타일 */
     div[data-testid="stDataEditor"] th {
         background-color: #f0f2f6 !important; 
         color: #31333F !important;
         font-size: 14px !important;
         font-weight: 700 !important;
     }
+
+    /* 🖨️ 인쇄 모드 스타일 (핵심 수정 사항) */
     @media print {
+        /* 1. 화면의 불필요한 요소 모두 숨김 */
         header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
-        div[data-testid="stVerticalBlockBorderWrapper"], button,
-        .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle
+        button, .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle, 
+        .stTextInput, .stNumberInput, .stDateInput,
+        div[data-testid="stVerticalBlockBorderWrapper"] /* 폼 테두리 숨김 */
         { display: none !important; }
-        body, .stApp { background-color: white !important; color: black !important; zoom: 80%; }
-        .main .block-container { max-width: 100% !important; width: 100% !important; padding: 10px !important; margin: 0 !important; }
-        div[data-testid="stDataEditor"] table { border: 1px solid #000 !important; width: 100% !important; }
+
+        /* 2. 배경 및 폰트 설정 */
+        body, .stApp { background-color: white !important; color: black !important; zoom: 90%; }
+        
+        /* 3. 너비 100% 강제 적용 */
+        .main .block-container { 
+            max-width: 100% !important; 
+            width: 100% !important; 
+            padding: 10px 20px !important; /* 좌우 여백 최소화 */
+            margin: 0 !important; 
+        }
+        
+        /* 4. Streamlit 기본 수직 간격(gap) 제거 (빈 공간 삭제) */
+        div[data-testid="stVerticalBlock"] {
+            gap: 0 !important;
+        }
+
+        /* 5. 간트차트 하단 간격 15pt 설정 */
+        div[data-testid="stPlotlyChart"] {
+            margin-bottom: 15pt !important;
+            break-inside: avoid;
+        }
+
+        /* 6. 데이터 에디터(테이블) 스타일 및 1열 숨김 */
+        div[data-testid="stDataEditor"] {
+            margin-top: 0 !important; /* 위쪽 공백 제거 */
+            width: 100% !important;
+        }
+        div[data-testid="stDataEditor"] table { 
+            border: 1px solid #000 !important; 
+            width: 100% !important; 
+        }
+        
+        /* [요청사항] 업무리스트 1열(인덱스 혹은 첫번째 컬럼) 숨기기 */
+        div[data-testid="stDataEditor"] table th:first-child,
+        div[data-testid="stDataEditor"] table td:first-child {
+            display: none !important;
+        }
+
         @page { size: landscape; margin: 0.5cm; }
     }
 </style>
@@ -180,12 +224,11 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # [수정] 헤더 스타일링 (Bold, 15px) 및 컬럼 비율 (테이블 30%, 차트 70%)
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
         horizontal_spacing=0.005, 
-        column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], # 합계: 0.3(테이블) + 0.7(차트) = 1.0
+        column_widths=[0.10, 0.05, 0.05, 0.10, 0.70], 
         subplot_titles=(
             "<b><span style='font-size:15px; color:black'>프로젝트명</span></b>", 
             "<b><span style='font-size:15px; color:black'>구분</span></b>", 
@@ -200,7 +243,6 @@ if not chart_data.empty:
     y_axis = list(range(num_rows))
     text_color = "black" if force_print_theme else ("white" if is_dark_mode else "black")
     
-    # [수정] 테이블 글자 크기 8로 설정
     common_props = dict(mode="text", textposition="middle center", textfont=dict(color=text_color, size=8), hoverinfo="skip")
 
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["프로젝트명_표시"], **common_props), row=1, col=1)
@@ -211,7 +253,6 @@ if not chart_data.empty:
     for idx, row in chart_data.iterrows():
         start_date = row["시작일"]
         end_date = row["종료일"]
-        
         duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
@@ -226,7 +267,6 @@ if not chart_data.empty:
             hoverinfo="text",
             hovertext=f"<b>{row['프로젝트명']}</b><br>{row['Activity']}<br>{row['시작일'].strftime('%Y-%m-%d')} ~ {row['종료일'].strftime('%Y-%m-%d')}<br>작업일: {work_days}일",
             text=bar_text, textposition='inside', insidetextanchor='middle',
-            # [수정] 차트 내부 글자 크기 8
             textfont=dict(color='black', size=8),
             showlegend=False
         ), row=1, col=5)
@@ -258,10 +298,8 @@ if not chart_data.empty:
     
     curr_check = calc_start
     while curr_check <= calc_end:
-        # 날짜 라벨 중앙 정렬 (12:00)
         tick_vals.append(curr_check + timedelta(hours=12))
         
-        # 세로 그리드 (00:00)
         fig.add_shape(
             type="line", xref="x", yref="y",
             x0=curr_check, x1=curr_check, 
@@ -306,18 +344,16 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
-    # [수정] 행 높이 25px 계산, 최대 400px 제한
-    calculated_height = num_rows * 25 + 70  # 70은 헤더 및 여백 영역 보정값
+    calculated_height = num_rows * 25 + 70
     final_height = min(400, max(300, calculated_height))
     
-    # [수정] 제목/툴과 날짜 축 사이 간격(7) 조정
     fig.update_layout(
         height=final_height,
-        margin=dict(l=10, r=10, t=50, b=10), # top margin 조정
+        margin=dict(l=10, r=10, t=50, b=10),
         title={
             'text': "<b>Project Schedule</b>",
             'y': 0.99, 'x': 0.05, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=7), # [수정] 간격 7
+            'pad': dict(b=7),
             'font': dict(color=text_color, size=16)
         },
         font=dict(color=text_color),
@@ -327,7 +363,6 @@ if not chart_data.empty:
         dragmode="pan"
     )
     
-    # 테마 설정으로 인해 텍스트 색상 강제 지정이 필요할 수 있음
     if force_print_theme:
          fig.update_annotations(font=dict(color="black"))
 
@@ -336,9 +371,10 @@ else:
     st.info("📅 표시할 일정이 없습니다.")
 
 # -----------------------------------------------------------------------------
-# 5. [입력 섹션]
+# 5. [입력 섹션] - 인쇄 시 공백 생기지 않도록 CSS 클래스 적용
 # -----------------------------------------------------------------------------
-st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
+# 공백 div에 no-print 클래스 추가
+st.markdown("<div class='no-print' style='height: 10px;'></div>", unsafe_allow_html=True)
 
 if 'new_start' not in st.session_state: st.session_state.new_start = get_now_kst().date()
 if 'new_end' not in st.session_state: st.session_state.new_end = get_now_kst().date()
@@ -403,7 +439,8 @@ with st.expander("➕ 새 일정 등록하기 (기간 자동 계산)"):
 # -----------------------------------------------------------------------------
 # 6. 데이터 에디터 및 저장
 # -----------------------------------------------------------------------------
-st.markdown("<div style='height: 20px;'></div>", unsafe_allow_html=True)
+# 공백 div에 no-print 클래스 추가
+st.markdown("<div class='no-print' style='height: 20px;'></div>", unsafe_allow_html=True)
 c_title, c_label, c_box, c_sort, c_show = st.columns([0.22, 0.08, 0.17, 0.15, 0.38])
 
 with c_title: st.markdown('<div class="subheader-text no-print">📝 업무 리스트</div>', unsafe_allow_html=True)
