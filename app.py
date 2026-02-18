@@ -27,7 +27,7 @@ def get_now_kst():
 st.set_page_config(page_title="디자인1본부 1팀 일정", layout="wide", page_icon="📅")
 
 # -----------------------------------------------------------------------------
-# 2. CSS 스타일링 (인쇄 너비 및 레이아웃 최적화)
+# 2. CSS 스타일링 (인쇄 너비 강제 맞춤 및 방향 자유 설정)
 # -----------------------------------------------------------------------------
 FONT_SIZE_TITLE = 18
 FONT_SIZE_TEXT = 10
@@ -35,7 +35,7 @@ FONT_SIZE_DATE = 8
 
 custom_css = f"""
 <style>
-    /* 전체 폰트 강제 통일 */
+    /* 폰트 통일 */
     html, body, [class*="css"] {{
         font-family: 'Arial', 'AppleGothic', 'Malgun Gothic', sans-serif !important;
     }}
@@ -48,7 +48,7 @@ custom_css = f"""
     div[data-testid="stForm"] .stTextInput {{ margin-top: 0px !important; }}
     .sort-label {{ font-size: 14px; font-weight: 600; display: flex; align-items: center; justify-content: flex-end; height: 40px; padding-right: 10px; }}
     
-    /* [화면/인쇄 공통] 테이블 스타일 */
+    /* [화면용] 테이블 스타일 */
     div[data-testid="stDataEditor"] th {{
         background-color: #f0f2f6 !important; 
         color: #000000 !important;
@@ -66,9 +66,9 @@ custom_css = f"""
         border-bottom: 1px solid #e0e0e0 !important;
     }}
 
-    /* 🖨️ 인쇄 모드 스타일 (너비 맞춤 최적화) */
+    /* 🖨️ 인쇄 모드 스타일 (너비 강제 맞춤 & 방향 자유) */
     @media print {{
-        /* 1. 불필요한 요소 숨김 */
+        /* 1. 불필요한 UI 숨김 */
         header, footer, aside, [data-testid="stSidebar"], [data-testid="stToolbar"], 
         .stButton, .stDownloadButton, .stExpander, .stForm, 
         button, .no-print, .sort-area, .stSelectbox, .stCheckbox, .stToggle, 
@@ -77,10 +77,10 @@ custom_css = f"""
         .title-text 
         {{ display: none !important; }}
 
-        /* 2. 페이지 설정: auto로 설정하여 가로/세로 출력 모두 대응 */
+        /* 2. 페이지 설정: auto (가로/세로 자동 대응), 여백 최소화 */
         @page {{ 
-            size: auto;   /* 가로/세로 방향 자동 감지 */
-            margin: 10mm; /* 용지 여백 통일 */
+            size: auto; 
+            margin: 5mm; 
         }}
         
         body {{ 
@@ -88,39 +88,40 @@ custom_css = f"""
             color: black !important;
             margin: 0 !important;
             padding: 0 !important;
+            min-width: 100% !important;
         }}
         
-        /* 3. Streamlit 메인 컨테이너 너비 강제 확장 (핵심) */
+        /* 3. Streamlit 컨테이너 너비 100%로 강제 확장 */
         .main .block-container {{ 
-            max-width: 100vw !important; /* 뷰포트 너비 100% */
+            max-width: 100% !important; 
             width: 100% !important; 
             padding: 0 !important; 
             margin: 0 !important; 
         }}
         
-        /* 4. 블록 간격 제거 */
         div[data-testid="stVerticalBlock"] {{ gap: 0 !important; }}
 
-        /* 5. 차트와 테이블의 부모 컨테이너 너비 100% 강제 일치 */
-        div[data-testid="stPlotlyChart"],
+        /* 4. 차트 (Plotly) 너비 맞춤 */
+        div[data-testid="stPlotlyChart"] {{
+            width: 100% !important;
+            margin-bottom: 15pt !important;
+            display: block !important;
+        }}
+        .js-plotly-plot, .plot-container {{
+            width: 100% !important;
+        }}
+
+        /* 5. 데이터 에디터 (테이블) 너비 맞춤 */
         div[data-testid="stDataEditor"] {{
             width: 100% !important;
-            max-width: 100% !important;
-            margin-left: 0 !important;
-            margin-right: 0 !important;
-            padding: 0 !important;
-            display: block !important; /* flex 등으로 인한 축소 방지 */
+            display: block !important;
         }}
-
-        /* 차트 하단 간격 */
-        div[data-testid="stPlotlyChart"] {{
-            margin-bottom: 15pt !important;
-        }}
-
-        /* 6. 테이블 내부 너비 100% 및 스타일 */
+        
+        /* 테이블 레이아웃 강제 고정 (Fixed Layout) */
         div[data-testid="stDataEditor"] table {{ 
             width: 100% !important;
-            table-layout: fixed !important; /* 열 너비 균등 분배 혹은 100% 맞춤에 유리 */
+            min-width: 100% !important;
+            table-layout: fixed !important; /* 열 너비를 종이 폭에 강제로 맞춤 */
             border-collapse: collapse !important;
             border: 2px solid #000 !important;
         }}
@@ -128,21 +129,23 @@ custom_css = f"""
         div[data-testid="stDataEditor"] th {{
             background-color: #eeeeee !important;
             border: 1px solid #000 !important;
+            word-wrap: break-word !important; /* 긴 텍스트 줄바꿈 */
+            white-space: normal !important;
+            font-size: {FONT_SIZE_TEXT}pt !important;
             -webkit-print-color-adjust: exact;
         }}
+        
         div[data-testid="stDataEditor"] td {{
             border: 1px solid #000 !important;
+            word-wrap: break-word !important;
+            white-space: normal !important; /* 내용 줄바꿈 허용 */
+            font-size: {FONT_SIZE_TEXT}pt !important;
         }}
 
         /* 업무리스트 1열(Index) 숨김 */
         div[data-testid="stDataEditor"] table th:first-child,
         div[data-testid="stDataEditor"] table td:first-child {{
             display: none !important;
-        }}
-        
-        /* Plotly SVG 내부도 반응형으로 늘어남 */
-        .js-plotly-plot, .plot-container {{
-            width: 100% !important;
         }}
     }}
 </style>
@@ -212,14 +215,15 @@ def process_dataframe(df):
     )
     df["진행상황"] = df["진행률"]
     
-    # [오류 수정] _original_id 컬럼을 숫자로 강제 변환하여 TypeError 방지
+    # [중요] _original_id 오류 수정 로직
+    # 1. 숫자로 변환 (실패시 NaN)
     df["_original_id"] = pd.to_numeric(df["_original_id"], errors='coerce')
     
+    # 2. NaN 채우기 및 신규 ID 할당
     if df["_original_id"].isnull().all():
          df["_original_id"] = range(len(df))
     else:
         mask = df["_original_id"].isna()
-        # 숫자로 변환된 ID들 중 최대값 계산
         valid_ids = df["_original_id"].dropna()
         start_id = int(valid_ids.max()) + 1 if not valid_ids.empty else 0
         df.loc[mask, "_original_id"] = range(start_id, start_id + mask.sum())
