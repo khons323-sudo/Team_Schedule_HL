@@ -1,4 +1,6 @@
-streamlit>=1.31.0
+streamlit
 pandas
 plotly
 st-gsheets-connection
+numpy
+holidays
