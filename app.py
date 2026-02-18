@@ -159,7 +159,7 @@ def process_dataframe(df):
         for col in required_cols:
             if col not in df.columns: df[col] = ""
 
-    # 날짜 파싱
+    # 날짜 파싱 (Naive Datetime)
     df["시작일"] = pd.to_datetime(df["시작일"], errors='coerce')
     df["종료일"] = pd.to_datetime(df["종료일"], errors='coerce')
     
@@ -272,17 +272,18 @@ if not chart_data.empty:
     fig.add_trace(go.Scatter(x=[0.5]*num_rows, y=y_axis, text=chart_data["Activity_표시"], **common_props), row=1, col=4)
 
     for idx, row in chart_data.iterrows():
+        # [수정] timestamp() 대신 datetime 객체 직접 사용 (오차 제거)
         start_date = row["시작일"]
         end_date = row["종료일"]
         
-        # [수정] Bar 기간 1일 추가 (종료일 포함)
-        # (종료일 - 시작일 + 1일)을 초 단위로 계산 후 밀리초로 변환
-        duration_ms = ((end_date - start_date).days + 1) * 24 * 3600 * 1000
+        # [수정] 기간을 timedelta -> milliseconds로 계산
+        duration_ms = (end_date - start_date).total_seconds() * 1000
         
         work_days = get_business_days(row["시작일"], row["종료일"])
         bar_text = f"{work_days}일 / {row['진행률']}%"
 
         fig.add_trace(go.Bar(
+            # [중요] base에 datetime 객체 직접 전달
             base=[start_date], 
             x=[duration_ms], 
             y=[idx],
@@ -334,29 +335,16 @@ if not chart_data.empty:
     
     curr_check = calc_start
     while curr_check <= calc_end:
-        # [수정] 날짜 텍스트 위치 12시간 오프셋 적용 (칸 중앙에 표시)
-        tick_vals.append(curr_check + timedelta(hours=12))
-        
+        tick_vals.append(curr_check)
         korean_day = day_map[curr_check.strftime('%a')]
         formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
-        # [수정] 세로선 (수평선과 같은 색, 파선) - 00:00 기준 유지
-        fig.add_shape(
-            type="line",
-            xref="x", yref="y",
-            x0=curr_check, x1=curr_check,
-            y0=-0.5, y1=num_rows - 0.5,
-            line=dict(color="rgba(128,128,128,0.2)", width=1, dash="dash"),
-            layer="below",
-            row=1, col=5
-        )
-
         is_hol = is_holiday(curr_check)
         if is_hol:
             # X축 글자 색상 (휴일)
             formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>" 
             
-            # 휴일 배경색 적용
+            # 휴일 배경색 적용 (모든 셀 커버, 15% 투명도)
             fig.add_shape(
                 type="rect",
                 xref="x", yref="y", 
@@ -387,13 +375,15 @@ if not chart_data.empty:
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        # [수정] Native Grid 비활성화 (텍스트가 12시로 이동했으므로, 12시에 선이 생기는 것을 방지)
-        showgrid=False,
+        showgrid=True,
+        gridcolor='rgba(128,128,128,0.2)',
+        griddash='dash',
+        dtick="D1",
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     
-    # 붉은색 기준선(오늘)
+    # [수정] 붉은색 기준선(오늘) 좌표 보정: Naive KST Datetime 객체 직접 사용
     fig.add_vline(x=now_kst, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
     layout_bg = "white" if force_print_theme else None
@@ -427,6 +417,7 @@ else:
 # -----------------------------------------------------------------------------
 st.markdown("<div style='height: 10px;'></div>", unsafe_allow_html=True)
 
+# [수정] 입력 폼 날짜 기본값도 Naive KST 오늘로 설정
 if 'new_start' not in st.session_state: st.session_state.new_start = get_now_kst()
 if 'new_end' not in st.session_state: st.session_state.new_end = get_now_kst()
 if 'new_days' not in st.session_state: st.session_state.new_days = 1
