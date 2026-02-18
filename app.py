@@ -206,20 +206,19 @@ chart_data = chart_base_data.dropna(subset=["시작일", "종료일"]).copy()
 force_print_theme = st.sidebar.checkbox("🖨️ 인쇄용 테마 적용 (Light Mode)", value=False)
 
 if not chart_data.empty:
-    # [수정 1] 프로젝트명 오름차순 정렬 (2차 정렬: 시작일)
+    # 프로젝트명 오름차순 정렬 (2차 정렬: 시작일)
     chart_data = chart_data.sort_values(by=["프로젝트명", "시작일"], ascending=[True, True]).reset_index(drop=True)
     
-    # [수정 2] 동일 프로젝트명 숨기기 (첫번째만 표시)
+    # 동일 프로젝트명 숨기기
     proj_display_list = []
     prev_proj = None
     for proj in chart_data["프로젝트명"]:
         if proj == prev_proj:
-            proj_display_list.append("") # 중복이면 빈칸
+            proj_display_list.append("") 
         else:
-            proj_display_list.append(proj) # 새 프로젝트면 표시
+            proj_display_list.append(proj) 
             prev_proj = proj
     
-    # 래핑 적용
     chart_data["프로젝트명_표시"] = [wrap_labels(p, 12) for p in proj_display_list]
     chart_data["Activity_표시"] = chart_data["Activity"].apply(lambda x: wrap_labels(x, 12))
     
@@ -273,24 +272,50 @@ if not chart_data.empty:
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
-    curr_date = view_start
-    while curr_date <= view_end:
-        tick_vals.append(curr_date)
-        korean_day = day_map[curr_date.strftime('%a')]
-        formatted_date = f"{curr_date.month}/{curr_date.day} / {korean_day}"
+    # -------------------------------------------------------------------------
+    # [수정] Shapes: 가로선(Row 구분) + 세로선(휴일 배경) 추가
+    # -------------------------------------------------------------------------
+    shapes = []
+    
+    # 1. 가로선 (Row 구분)
+    for i in range(num_rows + 1):
+        shapes.append(dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1)))
+
+    # 2. 세로선 (휴일 배경 - 검은색 30% 적용)
+    curr_check = view_start
+    while curr_check <= view_end:
+        # X축 라벨 생성
+        tick_vals.append(curr_check)
+        korean_day = day_map[curr_check.strftime('%a')]
+        formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
-        if is_holiday(curr_date):
+        is_hol = is_holiday(curr_check)
+        if is_hol:
+            # X축 글자 색상 (휴일)
             formatted_date = f"<span style='color:rgba(0,0,0,0.3)'>{formatted_date}</span>"
-        
+            
+            # [추가] 휴일 배경색 (검은색 30%)
+            shapes.append(dict(
+                type="rect",
+                xref="x", yref="paper", # yref를 paper로 하여 차트 높이 전체 커버
+                x0=curr_check, # 해당 날짜 00:00
+                x1=curr_check + timedelta(days=1), # 다음날 00:00
+                y0=0, y1=1,
+                fillcolor="rgba(0, 0, 0, 0.3)", # 검은색 30%
+                opacity=1, # fillcolor에서 alpha값 제어하므로 opacity는 1
+                layer="below", # Bar보다 뒤에 위치
+                line_width=0,
+                row=1, col=5
+            ))
+
         tick_text.append(formatted_date)
-        curr_date += timedelta(days=1)
+        curr_check += timedelta(days=1)
 
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
-        # [수정 3] Y축 반전 적용 (오름차순 정렬 시 상단부터 표시하기 위해)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
-    # 차트 영역 설정 (Y축 반전 포함)
+    # 차트 영역 설정
     fig.update_xaxes(
         type="date", range=[view_start, view_end], side="top",
         tickfont=dict(size=10, color=text_color),
@@ -302,8 +327,6 @@ if not chart_data.empty:
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
     fig.add_vline(x=today.timestamp() * 1000, line_width=1.5, line_dash="dot", line_color="red", row=1, col=5)
 
-    shapes = [dict(type="line", xref="paper", yref="y", x0=0, x1=1, y0=i-0.5, y1=i-0.5, line=dict(color="rgba(128,128,128,0.2)", width=1)) for i in range(num_rows + 1)]
-    
     layout_bg = "white" if force_print_theme else None
     
     fig.update_layout(
