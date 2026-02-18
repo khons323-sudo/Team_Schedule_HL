@@ -223,7 +223,6 @@ if not chart_data.empty:
     colors = px.colors.qualitative.Pastel
     color_map = {member: colors[i % len(colors)] for i, member in enumerate(unique_members)}
     
-    # 서브타이틀: 크기 14, 검정색, Bold
     fig = make_subplots(
         rows=1, cols=5,
         shared_yaxes=True,
@@ -276,14 +275,32 @@ if not chart_data.empty:
             showlegend=False
         ), row=1, col=5)
 
-    view_start = today - timedelta(days=5)
-    view_end = today + timedelta(days=20)
+    # -------------------------------------------------------------------------
+    # [수정] 스크롤 최적화를 위한 날짜 범위 계산
+    # -------------------------------------------------------------------------
+    # 오늘 날짜 기준 표시 범위 (줌 초기값)
+    view_start_initial = today - timedelta(days=5)
+    view_end_initial = today + timedelta(days=20)
+
+    # 실제 계산 및 렌더링 범위 (앞뒤로 6개월씩 여유를 둠)
+    # 이렇게 해야 좌우 스크롤 시에도 글자와 배경이 보임
+    calc_start = today - timedelta(days=180)
+    calc_end = today + timedelta(days=180)
     
+    if not chart_data.empty:
+        # 데이터가 있는 범위가 더 넓다면 그 범위를 포함
+        min_date = chart_data["시작일"].min()
+        max_date = chart_data["종료일"].max()
+        calc_start = min(calc_start, min_date - timedelta(days=30))
+        calc_end = max(calc_end, max_date + timedelta(days=30))
+
     # 배경색 로직 (15% 투명도 적용)
     if is_dark_mode and not force_print_theme:
-        holiday_fill_color = "rgba(255, 255, 255, 0.15)" # 흰색 15%
+        holiday_fill_color = "rgba(255, 255, 255, 0.15)"
+        holiday_text_color = "rgba(255, 255, 255, 0.4)" # 글자는 좀 더 밝게
     else:
-        holiday_fill_color = "rgba(0, 0, 0, 0.15)" # 검은색 15%
+        holiday_fill_color = "rgba(0, 0, 0, 0.15)"
+        holiday_text_color = "rgba(0, 0, 0, 0.4)"
 
     # 1. 가로선 (Row 구분)
     for i in range(num_rows + 1):
@@ -297,29 +314,19 @@ if not chart_data.empty:
     tick_text = []
     day_map = {'Mon': '월', 'Tue': '화', 'Wed': '수', 'Thu': '목', 'Fri': '금', 'Sat': '토', 'Sun': '일'}
     
-    curr_check = view_start
-    while curr_check <= view_end:
+    # 2. 날짜별 휴일 배경 및 텍스트 생성 (넓은 범위 계산)
+    curr_check = calc_start
+    while curr_check <= calc_end:
         tick_vals.append(curr_check)
         korean_day = day_map[curr_check.strftime('%a')]
         formatted_date = f"{curr_check.month}/{curr_check.day} / {korean_day}"
         
-        # [수정] 세로선 (수평선과 같은 색, 파선)
-        fig.add_shape(
-            type="line",
-            xref="x", yref="y",
-            x0=curr_check, x1=curr_check,
-            y0=-0.5, y1=num_rows - 0.5,
-            line=dict(color="rgba(128,128,128,0.2)", width=1, dash="dash"),
-            layer="below",
-            row=1, col=5
-        )
-
         is_hol = is_holiday(curr_check)
         if is_hol:
             # X축 글자 색상 (휴일)
-            formatted_date = f"<span style='color:{holiday_fill_color.replace('0.15', '0.4')}'>{formatted_date}</span>" 
+            formatted_date = f"<span style='color:{holiday_text_color}'>{formatted_date}</span>" 
             
-            # [수정] 휴일 배경색 적용 (모든 셀 커버, 15% 투명도)
+            # 휴일 배경색 적용 (모든 셀 커버, 15% 투명도)
             fig.add_shape(
                 type="rect",
                 xref="x", yref="y", 
@@ -337,18 +344,25 @@ if not chart_data.empty:
         tick_text.append(formatted_date)
         curr_check += timedelta(days=1)
 
+    # 축 설정
     for i in range(1, 5):
         fig.update_xaxes(showgrid=False, zeroline=False, showticklabels=False, row=1, col=i)
         fig.update_yaxes(showgrid=False, zeroline=False, showticklabels=False, autorange="reversed", row=1, col=i)
 
     # 차트 영역 설정
     fig.update_xaxes(
-        type="date", range=[view_start, view_end], side="top",
+        type="date", 
+        # [중요] 초기 줌 범위 설정 (데이터는 넓게 있지만 처음엔 여기만 보여줌)
+        range=[view_start_initial, view_end_initial], 
+        side="top",
         tickfont=dict(size=10, color=text_color),
         tickvals=tick_vals,
         ticktext=tick_text,
-        gridcolor='rgba(128,128,128,0.2)', 
-        showgrid=False, 
+        # [수정] 수평선과 같은 색상의 파선(Dash) 적용 (Plotly Native Grid 사용)
+        showgrid=True,
+        gridcolor='rgba(128,128,128,0.2)',
+        griddash='dash', # 파선 적용
+        dtick="D1", # 1일 간격 강제
         row=1, col=5
     )
     fig.update_yaxes(showticklabels=False, showgrid=False, fixedrange=True, autorange="reversed", row=1, col=5)
@@ -356,15 +370,14 @@ if not chart_data.empty:
 
     layout_bg = "white" if force_print_theme else None
     
-    # [수정] 레이아웃: 제목 간격 및 폰트 설정
     fig.update_layout(
         height=max(300, num_rows * 40 + 80),
         margin=dict(l=10, r=10, t=60, b=10), 
         title={
-            'text': "<b>Project Schedule</b>", # [수정] 제목 Bold
+            'text': "<b>Project Schedule</b>",
             'y': 0.98, 'x': 0.35, 'xanchor': 'left', 'yanchor': 'top', 
-            'pad': dict(b=5), # [수정] 간격 5 적용
-            'font': dict(color=text_color, size=16) # [수정] 크기 16
+            'pad': dict(b=5),
+            'font': dict(color=text_color, size=16)
         },
         font=dict(color=text_color),
         paper_bgcolor=layout_bg, 
